@@ -194,7 +194,7 @@ export const FIELDS: FieldDef[] = [
   },
   {
     key: 'executionDate',
-    label: 'Execution date',
+    label: 'Signed date',
     group: 'Dates & term',
     kind: 'date',
     synonyms: [

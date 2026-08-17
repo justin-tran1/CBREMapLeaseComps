@@ -84,6 +84,15 @@ export const IconLayers = ({ size = 16, className, style }: IconProps) => (
   </svg>
 )
 
+export const IconSliders = ({ size = 16, className, style }: IconProps) => (
+  <svg {...base(size)} className={className} style={style}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+    <circle cx="9" cy="6" r="2.2" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="2.2" fill="currentColor" stroke="none" />
+    <circle cx="7.5" cy="18" r="2.2" fill="currentColor" stroke="none" />
+  </svg>
+)
+
 export const IconGlobe = ({ size = 16, className, style }: IconProps) => (
   <svg {...base(size)} className={className} style={style}>
     <circle cx="12" cy="12" r="9" />

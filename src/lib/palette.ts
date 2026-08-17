@@ -59,12 +59,73 @@ export const CATEGORICAL_DARK = [
   CBRE.lightViolet,
 ] as const
 
+/**
+ * Alternative categorical themes, for the chart settings on the dashboard.
+ *
+ * Every hex is a CBRE brand value and every ordering was measured rather than chosen by eye,
+ * because the pairs that fail are not the ones that look risky. Accent green beside wheat
+ * scores ΔE 1.6 under protanopia, which is the reason the default swaps slots four and five,
+ * and a cool blue-and-sage set that looked entirely sensible scored 6.2 for normal vision and
+ * was dropped. The figures below are the worst adjacent pair under simulated colour-vision
+ * deficiency, and the worst adjacent pair for normal vision, on this theme's own surface.
+ *
+ *   node scripts/validate_palette.js "<hexes>" --mode light|dark
+ *
+ * Only the separation checks are treated as pass or fail. The lightness-band and chroma-floor
+ * checks fail for every one of these, the default included, because they are brand colours and
+ * the brand is the parameter. The contrast warning is answered by the legend, the tooltips and
+ * the data table, which is the relief that warning asks for.
+ */
+export interface ChartPaletteDef {
+  id: ChartPaletteId
+  label: string
+  description: string
+  light: readonly string[]
+  dark: readonly string[]
+  /** Worst adjacent pair, CVD then normal vision, light and dark. */
+  measured: { light: [number, number]; dark: [number, number] }
+}
+
+export type ChartPaletteId = 'cbre' | 'contrast' | 'warm'
+
+export const CHART_PALETTES: ChartPaletteDef[] = [
+  {
+    id: 'cbre',
+    label: 'CBRE charts',
+    description: 'The brand chart palette, in brand order.',
+    light: CATEGORICAL_LIGHT,
+    dark: CATEGORICAL_DARK,
+    measured: { light: [14.7, 23.7], dark: [14.7, 20.2] },
+  },
+  {
+    id: 'contrast',
+    label: 'High contrast',
+    description: 'Deeper, heavier series. Best for a projector or a printed page.',
+    light: [CBRE.darkGreen, CBRE.terracotta, CBRE.brandBlue, CBRE.wheat, CBRE.plum, CBRE.celadon],
+    dark: [CBRE.accentGreen, CBRE.lightViolet, CBRE.terracotta, CBRE.brandBlue, CBRE.wheat, CBRE.celadon],
+    measured: { light: [13.7, 23.2], dark: [12.1, 15.1] },
+  },
+  {
+    id: 'warm',
+    label: 'Warm',
+    description: 'Plum and wheat lead. The widest colour-vision separation of the three.',
+    light: [CBRE.plum, CBRE.wheat, CBRE.terracotta, CBRE.green, CBRE.brandBlue, CBRE.sageTint],
+    dark: [CBRE.lightViolet, CBRE.wheat, CBRE.terracotta, CBRE.accentGreen, CBRE.brandBlue, CBRE.sageTint],
+    measured: { light: [18.1, 19.5], dark: [14.7, 19.5] },
+  },
+]
+
+export function chartPalette(id: ChartPaletteId): ChartPaletteDef {
+  return CHART_PALETTES.find((p) => p.id === id) ?? CHART_PALETTES[0]
+}
+
 /** Single-measure charts use one colour, because colour encodes nothing there. */
 export const SERIES_LIGHT = CBRE.green
 export const SERIES_DARK = CBRE.accentGreen
 
-export function categoricalPalette(dark: boolean): readonly string[] {
-  return dark ? CATEGORICAL_DARK : CATEGORICAL_LIGHT
+export function categoricalPalette(dark: boolean, id: ChartPaletteId = 'cbre'): readonly string[] {
+  const def = chartPalette(id)
+  return dark ? def.dark : def.light
 }
 
 export function seriesColor(dark: boolean): string {
@@ -76,8 +137,8 @@ export const OTHER_LABEL = 'Other'
 export const OTHER_COLOR_LIGHT = CBRE.cement
 export const OTHER_COLOR_DARK = CBRE.cementTint
 
-export function colorForIndex(index: number, dark: boolean): string {
-  const palette = categoricalPalette(dark)
+export function colorForIndex(index: number, dark: boolean, id: ChartPaletteId = 'cbre'): string {
+  const palette = categoricalPalette(dark, id)
   if (index < 0 || index >= palette.length) return dark ? OTHER_COLOR_DARK : OTHER_COLOR_LIGHT
   return palette[index]
 }

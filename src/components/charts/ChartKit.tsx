@@ -1,5 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -12,6 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import { colorForIndex, OTHER_LABEL } from '../../lib/palette'
+import { DEFAULT_CHART_PREFS, type ChartPrefs } from '../../lib/chartPrefs'
 
 /**
  * Shared chart chrome.
@@ -30,12 +33,14 @@ export interface ChartTheme {
   inkMuted: string
   surface: string
   dark: boolean
+  /** The presentation choices from the dashboard's chart settings. */
+  prefs: ChartPrefs
 }
 
-export function useChartTheme(dark: boolean): ChartTheme {
+export function useChartTheme(dark: boolean, prefs: ChartPrefs = DEFAULT_CHART_PREFS): ChartTheme {
   return useMemo(
-    () =>
-      dark
+    () => ({
+      ...(dark
         ? {
             series: '#17e88f',
             seriesSoft: 'rgba(23,232,143,0.16)',
@@ -55,9 +60,21 @@ export function useChartTheme(dark: boolean): ChartTheme {
             inkMuted: '#7f8480',
             surface: '#ffffff',
             dark: false,
-          },
-    [dark],
+          }),
+      prefs,
+    }),
+    [dark, prefs],
   )
+}
+
+/** Bar corner radii, in the order each chart needs them. */
+function radius(theme: ChartTheme, corners: [number, number, number, number]): [number, number, number, number] {
+  return theme.prefs.barShape === 'square' ? [0, 0, 0, 0] : corners
+}
+
+/** A grid the user has switched off is not drawn at all, rather than drawn in the surface colour. */
+function gridStroke(theme: ChartTheme): string | undefined {
+  return theme.prefs.showGrid ? theme.grid : 'transparent'
 }
 
 // -------------------------------------------------------------------- frame
@@ -175,7 +192,7 @@ export function CategoryBars({
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} layout="vertical" margin={{ top: 2, right: 54, bottom: 2, left: 0 }} barCategoryGap="22%">
-        <CartesianGrid horizontal={false} stroke={theme.grid} />
+        <CartesianGrid horizontal={false} stroke={gridStroke(theme)} />
         <XAxis
           type="number"
           tick={{ fill: theme.inkMuted, fontSize: 11 }}
@@ -196,7 +213,7 @@ export function CategoryBars({
           cursor={{ fill: theme.seriesSoft }}
           content={<KitTooltip rowsOf={(row) => tooltipRows(row)} />}
         />
-        <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={22} isAnimationActive={false}>
+        <Bar dataKey="value" radius={radius(theme, [0, 4, 4, 0])} maxBarSize={22} isAnimationActive={false}>
           {data.map((entry) => (
             <Cell
               key={entry.name}
@@ -220,6 +237,8 @@ interface StackedColumnsProps {
   axisFormat?: (n: number) => string
   tooltipTitle?: (label: string, row: Record<string, unknown>) => string
   extraTooltipRows?: (row: Record<string, unknown>) => Array<{ label: string; value: string }>
+  /** Counts have no half values, so the axis should not offer any. */
+  wholeNumbers?: boolean
 }
 
 export function StackedColumns({
@@ -230,14 +249,15 @@ export function StackedColumns({
   axisFormat,
   tooltipTitle,
   extraTooltipRows,
+  wholeNumbers = false,
 }: StackedColumnsProps) {
   const colorFor = (key: string, index: number) =>
-    key === OTHER_LABEL ? theme.inkMuted : colorForIndex(index, theme.dark)
+    key === OTHER_LABEL ? theme.inkMuted : colorForIndex(index, theme.dark, theme.prefs.palette)
 
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="18%">
-        <CartesianGrid vertical={false} stroke={theme.grid} />
+        <CartesianGrid vertical={false} stroke={gridStroke(theme)} />
         <XAxis
           dataKey="label"
           tick={{ fill: theme.inkMuted, fontSize: 11 }}
@@ -251,6 +271,7 @@ export function StackedColumns({
           axisLine={false}
           tickLine={false}
           width={56}
+          allowDecimals={!wholeNumbers}
         />
         <Tooltip
           cursor={{ fill: theme.seriesSoft }}
@@ -279,7 +300,7 @@ export function StackedColumns({
             strokeWidth={1.5}
             maxBarSize={54}
             isAnimationActive={false}
-            radius={index === stackKeys.length - 1 ? [4, 4, 0, 0] : undefined}
+            radius={index === stackKeys.length - 1 ? radius(theme, [4, 4, 0, 0]) : undefined}
           />
         ))}
       </BarChart>
@@ -287,7 +308,7 @@ export function StackedColumns({
   )
 }
 
-export function ChartLegend({ keys, dark }: { keys: string[]; dark: boolean }) {
+export function ChartLegend({ keys, theme }: { keys: string[]; theme: ChartTheme }) {
   if (keys.length < 2) return null
   return (
     <div className="legendrow">
@@ -295,7 +316,14 @@ export function ChartLegend({ keys, dark }: { keys: string[]; dark: boolean }) {
         <span className="legendrow__item" key={key}>
           <span
             className="legendrow__swatch"
-            style={{ background: key === OTHER_LABEL ? (dark ? '#6f7a76' : '#8a8f8c') : colorForIndex(index, dark) }}
+            style={{
+              background:
+                key === OTHER_LABEL
+                  ? theme.dark
+                    ? '#6f7a76'
+                    : '#8a8f8c'
+                  : colorForIndex(index, theme.dark, theme.prefs.palette),
+            }}
           />
           {key}
         </span>
@@ -323,9 +351,15 @@ export function TrendLine({
   tooltipLabel,
   extraTooltipRows,
 }: TrendLineProps) {
+  const filled = theme.prefs.trendStyle === 'area'
+  // The same chart either way: one measure, one axis, the line in the same place. A fill only
+  // weights it, which helps across a room and costs nothing on a screen.
+  const Chart = filled ? AreaChart : LineChart
+  const Mark = filled ? Area : Line
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 12, bottom: 2, left: 4 }}>
+      <Chart data={data} margin={{ top: 8, right: 12, bottom: 2, left: 4 }}>
         <CartesianGrid vertical={false} stroke={theme.grid} />
         <XAxis
           dataKey="label"
@@ -357,17 +391,18 @@ export function TrendLine({
             />
           }
         />
-        <Line
+        <Mark
           type="monotone"
           dataKey={dataKey}
           stroke={theme.series}
           strokeWidth={2}
+          fill={filled ? theme.seriesSoft : 'none'}
           dot={{ r: 3, fill: theme.surface, stroke: theme.series, strokeWidth: 2 }}
           activeDot={{ r: 5, fill: theme.series, stroke: theme.surface, strokeWidth: 2 }}
           connectNulls
           isAnimationActive={false}
         />
-      </LineChart>
+      </Chart>
     </ResponsiveContainer>
   )
 }
@@ -384,7 +419,7 @@ export function Histogram({ data, theme, unitLabel }: HistogramProps) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="12%">
-        <CartesianGrid vertical={false} stroke={theme.grid} />
+        <CartesianGrid vertical={false} stroke={gridStroke(theme)} />
         <XAxis
           dataKey="label"
           tick={{ fill: theme.inkMuted, fontSize: 10 }}
@@ -412,7 +447,7 @@ export function Histogram({ data, theme, unitLabel }: HistogramProps) {
         <Bar
           dataKey="count"
           fill={theme.series}
-          radius={[4, 4, 0, 0]}
+          radius={radius(theme, [4, 4, 0, 0])}
           maxBarSize={64}
           isAnimationActive={false}
         />

@@ -229,7 +229,7 @@ await pins.nth(singleIdx).dispatchEvent('click')
 await page.locator('.maplibregl-popup .pop').waitFor({ timeout: 5000 })
 const keys = await page.locator('.maplibregl-popup .pop__key').allInnerTexts()
 const REQUESTED_ORDER = [
-  'Lease date', 'Term length', 'Execution date', 'Lease type', 'Property subtype', 'Rate type',
+  'Signed date', 'Lease date', 'Term length', 'Lease type', 'Property subtype', 'Rate type',
   'Area leased', 'Floor', 'Suite', 'Base rent', 'OpEx', 'Escalation', 'Free rent', 'TI allowance',
 ]
 check(
@@ -237,6 +237,8 @@ check(
   JSON.stringify(keys.slice(0, REQUESTED_ORDER.length)) === JSON.stringify(REQUESTED_ORDER),
   keys.join(' | '),
 )
+check('signed date leads the card', keys[0] === 'Signed date', keys[0])
+check('the old execution date label is gone', !keys.includes('Execution date'), keys.join(' | '))
 check('parties follow the requested fields', keys.includes('Lessor') && keys.includes('Lessee') && keys.includes('Brokers'), keys.join(' | '))
 
 const vals = await page.locator('.maplibregl-popup .pop__val').allInnerTexts()
@@ -545,12 +547,73 @@ await page.waitForTimeout(500)
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1600)
 check('dashboard renders', await page.getByRole('heading', { name: /lease comps/i }).isVisible())
-check('six KPI tiles', (await page.locator('.kpi').count()) === 6)
+check('nine KPI tiles across both sections', (await page.locator('.kpi').count()) === 9)
 const kpiValues = await page.locator('.kpi__value').allInnerTexts()
 check('KPI values populated', kpiValues.every((v) => v.trim() && v !== '—'), kpiValues.join(' | '))
-check('eight charts rendered', (await page.locator('.chart').count()) === 8)
+check('ten charts rendered', (await page.locator('.chart').count()) === 10)
 check('no chart is empty with sample data', (await page.locator('.chart__empty').count()) === 0)
-check('recharts surfaces present', (await page.locator('.chart .recharts-surface').count()) === 8)
+check('recharts surfaces present', (await page.locator('.chart .recharts-surface').count()) === 10)
+
+// ------------------------------------------------- 11b. the signed date section
+check('a signed date section is present', await page.getByRole('heading', { name: 'Signed date' }).isVisible())
+check(
+  'the signed timeline is charted',
+  await page.locator('.chart__title', { hasText: /Deals signed by/ }).isVisible(),
+)
+check(
+  'the lead time from signing to commencement is charted',
+  await page.locator('.chart__title', { hasText: 'Signing to commencement' }).isVisible(),
+)
+const signedKpis = await page.locator('.kpi', { hasText: 'Deals signed' }).innerText()
+check('every sample deal carries a signed date', signedKpis.includes('74'), signedKpis.replace(/\s+/g, ' '))
+const lagKpi = await page.locator('.kpi', { hasText: 'Signing to commencement' }).innerText()
+check('a median lead time is reported', /\d/.test(lagKpi.split('\n')[1] ?? ''), lagKpi.replace(/\s+/g, ' '))
+
+// -------------------------------------------- 11c. chart palette and style
+const seriesFill = () =>
+  page.locator('.chart .recharts-bar-rectangle path').first().getAttribute('fill')
+const beforePalette = await seriesFill()
+await page.getByRole('button', { name: 'Chart settings' }).click()
+await page.waitForTimeout(300)
+check('chart settings open', await page.locator('.cset__panel').isVisible())
+check('three palettes offered', (await page.locator('.cset__palette').count()) === 3)
+check(
+  'each palette shows its measured separation',
+  (await page.locator('.cset__palette').first().innerText()).includes('ΔE'),
+  (await page.locator('.cset__palette').first().innerText()).replace(/\s+/g, ' '),
+)
+
+await page.locator('.cset__palette', { hasText: 'Warm' }).click()
+await page.waitForTimeout(700)
+const afterPalette = await seriesFill()
+check('choosing a palette repaints the charts', beforePalette !== afterPalette, `${beforePalette} -> ${afterPalette}`)
+check(
+  'the legend follows the chart it labels',
+  (await page.locator('.legendrow__swatch').first().getAttribute('style'))?.includes('136, 80, 115'),
+  await page.locator('.legendrow__swatch').first().getAttribute('style'),
+)
+
+const gridBefore = await page.locator('.chart .recharts-cartesian-grid line').count()
+await page.locator('.cset__row', { hasText: 'Grid lines' }).getByRole('radio', { name: 'Off' }).click()
+await page.waitForTimeout(500)
+const gridStroke = await page.locator('.chart .recharts-cartesian-grid line').first().getAttribute('stroke')
+check('grid lines can be switched off', gridBefore > 0 && gridStroke === 'transparent', `${gridBefore} lines, stroke ${gridStroke}`)
+
+await page.locator('.cset__row', { hasText: 'Trend' }).getByRole('radio', { name: 'Filled' }).click()
+await page.waitForTimeout(600)
+check('the trend can be filled', (await page.locator('.chart .recharts-area-area').count()) > 0)
+
+const tallBefore = await page.locator('.chart__body').first().evaluate((el) => el.clientHeight)
+await page.locator('.cset__row', { hasText: 'Height' }).getByRole('radio', { name: 'Compact' }).click()
+await page.waitForTimeout(500)
+const tallAfter = await page.locator('.chart__body').first().evaluate((el) => el.clientHeight)
+check('compact makes the charts shorter', tallAfter < tallBefore, `${tallBefore} -> ${tallAfter}`)
+
+await page.getByRole('button', { name: 'Reset to default' }).click()
+await page.waitForTimeout(600)
+check('settings reset restores the brand palette', (await seriesFill()) === beforePalette, await seriesFill())
+await page.keyboard.press('Escape')
+await page.waitForTimeout(300)
 
 await page.locator('#fsection-city .optionlist__item', { hasText: 'Houston' }).locator('input').check()
 await page.waitForTimeout(800)
@@ -579,7 +642,7 @@ await page.waitForTimeout(1000)
 check('dark theme applied', (await page.locator('html').getAttribute('data-theme')) === 'dark')
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1400)
-check('dashboard survives the theme swap', (await page.locator('.chart .recharts-surface').count()) === 8)
+check('dashboard survives the theme swap', (await page.locator('.chart .recharts-surface').count()) === 10)
 await page.getByRole('tab', { name: 'Map' }).click()
 await page.waitForTimeout(1200)
 check('map still mounted after a tab round trip', (await page.locator('.pin-wrap').count()) === 32)

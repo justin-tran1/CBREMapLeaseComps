@@ -50,16 +50,22 @@ function tiText(deal: LeaseDeal): string {
   return perSf ? `${fmtRent(deal.tiAllowance, 'annual')}`.replace('/SF/Yr', '/SF') : fmtRent(deal.tiAllowance, '')
 }
 
-/** The detail card for one deal, in the field order the desk asked for. */
+/**
+ * The detail card for one deal, in the field order the desk asked for.
+ *
+ * Signed date leads. It is the same column the filter rail and the dashboard call signed date,
+ * and the same one the export calls `Signed Date`; the field was previously labelled execution
+ * date in three places and signed date in a fourth, which is one name too many for one date.
+ */
 function DealDetail({ deal }: { deal: LeaseDeal }) {
   const brokers = resolveBrokers(deal)
 
   return (
     <>
       <div className="pop__fields">
+        <Row label="Signed date" value={fmtDate(deal.executionDate)} />
         <Row label="Lease date" value={fmtDate(deal.leaseDate)} />
         <Row label="Term length" value={fmtMonths(deal.termMonths)} />
-        <Row label="Execution date" value={fmtDate(deal.executionDate)} />
         <Row label="Lease type" value={fmtText(deal.leaseType)} />
         <Row label="Property subtype" value={fmtText(deal.propertySubtype)} />
         <Row label="Rate type" value={fmtText(deal.rateType)} />

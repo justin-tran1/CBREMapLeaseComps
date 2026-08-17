@@ -6,10 +6,14 @@ import {
   computeCoverage,
   computeKpis,
   histogram,
+  signingStats,
   timeSeries,
+  SIGNED,
 } from '../lib/stats'
-import { fmtArea, fmtCompact, fmtMoney, fmtNumber, fmtShortMonths, fmtYears, EMPTY } from '../lib/format'
+import { densityScale, useChartPrefs } from '../lib/chartPrefs'
+import { fmtArea, fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtShortMonths, fmtYears, EMPTY } from '../lib/format'
 import { describeActiveFilters } from '../lib/filters'
+import { ChartSettings } from './ChartSettings'
 import { DataTable } from './DataTable'
 import {
   CategoryBars,
@@ -40,6 +44,14 @@ function Kpi({ label, value, note }: KpiProps) {
 
 const GRAIN_LABEL = { month: 'month', quarter: 'quarter', year: 'year' } as const
 
+/** Lead time reads better in months once it passes a couple of them, and can be negative. */
+function fmtLagDays(days: number): string {
+  const magnitude = Math.abs(days)
+  if (magnitude < 62) return `${Math.round(days)} days`
+  const months = days / 30.44
+  return `${months.toFixed(1)} mos`
+}
+
 interface DashboardTabProps {
   railOpen: boolean
   onOpenRail: () => void
@@ -47,7 +59,10 @@ interface DashboardTabProps {
 
 export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
   const { deals, filtered, theme, filters, setFilters, resetFilters } = useApp()
-  const chartTheme = useChartTheme(theme === 'dark')
+  const { prefs, setPref, reset: resetPrefs, isDefault } = useChartPrefs()
+  const chartTheme = useChartTheme(theme === 'dark', prefs)
+  // Compact means shorter charts, not charts with less room in them.
+  const h = (base: number) => Math.round(base * densityScale(prefs.density))
 
   const kpis = useMemo(() => computeKpis(filtered), [filtered])
   const grain = useMemo(() => chooseGrain(filtered), [filtered])
@@ -83,6 +98,17 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
     [filtered],
   )
 
+  const signing = useMemo(() => signingStats(filtered), [filtered])
+  const signedGrain = useMemo(() => chooseGrain(filtered, SIGNED), [filtered])
+  const signedActivity = useMemo(
+    () => timeSeries(filtered, signedGrain, (d) => d.leaseType, 5, { dateOf: SIGNED, measure: 'deals' }),
+    [filtered, signedGrain],
+  )
+  const lagBins = useMemo(
+    () => histogram(signing.lagDays, 12, (n) => String(Math.round(n))),
+    [signing.lagDays],
+  )
+
   const coverage = useMemo(() => computeCoverage(filtered), [filtered])
   const chips = describeActiveFilters(filters)
 
@@ -109,6 +135,13 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
                 Filters
               </button>
             )}
+            <ChartSettings
+              prefs={prefs}
+              setPref={setPref}
+              reset={resetPrefs}
+              isDefault={isDefault}
+              dark={chartTheme.dark}
+            />
             {chips.length > 0 && (
               <button type="button" className="btn btn--ghost btn--sm" onClick={resetFilters}>
                 Clear all filters
@@ -169,10 +202,10 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
             title={`Area leased by ${grainWord}`}
             subtitle="Square feet, stacked by lease type"
             wide
-            height={280}
+            height={h(280)}
             empty={activity.buckets.length === 0}
             emptyLabel="No lease dates in the current selection, so activity cannot be placed on a timeline."
-            footer={<ChartLegend keys={activity.stackKeys} dark={chartTheme.dark} />}
+            footer={<ChartLegend keys={activity.stackKeys} theme={chartTheme} />}
           >
             <StackedColumns
               data={activity.buckets}
@@ -193,7 +226,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title={`Base rent by ${grainWord}`}
             subtitle="Annual $/SF, weighted by area leased"
-            height={250}
+            height={h(250)}
             empty={rentTrend.length < 2}
             emptyLabel="At least two periods with both a lease date and a base rent are needed for a trend."
           >
@@ -213,7 +246,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Deals by lease type"
             subtitle="Deal count"
-            height={250}
+            height={h(250)}
             empty={byLeaseType.length === 0}
             emptyLabel="No lease type column is mapped."
           >
@@ -238,7 +271,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Top cities by area leased"
             subtitle="Square feet"
-            height={280}
+            height={h(280)}
             empty={byCity.length === 0}
             emptyLabel="No city column is mapped."
           >
@@ -263,7 +296,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Base rent by property subtype"
             subtitle="Annual $/SF, weighted by area leased"
-            height={280}
+            height={h(280)}
             empty={bySubtype.filter((d) => d.avgRent !== null).length === 0}
             emptyLabel="No property subtype column is mapped, or no subtype has a base rent."
           >
@@ -288,7 +321,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Top lessors by area leased"
             subtitle="Square feet"
-            height={280}
+            height={h(280)}
             empty={byLessor.length === 0}
             emptyLabel="No lessor column is mapped."
           >
@@ -307,7 +340,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Area leased distribution"
             subtitle="Deals per size band"
-            height={250}
+            height={h(250)}
             empty={areaBins.length === 0}
             emptyLabel="No area values in the current selection."
           >
@@ -317,11 +350,87 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
           <ChartFrame
             title="Term length distribution"
             subtitle="Deals per term band"
-            height={250}
+            height={h(250)}
             empty={termBins.length === 0}
             emptyLabel="No term values in the current selection."
           >
             <Histogram data={termBins} theme={chartTheme} unitLabel="months" />
+          </ChartFrame>
+        </div>
+
+        {/*
+          Signing is its own question, not a relabelled copy of the charts above. A quarter can
+          be busy for signings and quiet for commencements, and the gap between the two is the
+          pipeline, which is the one thing neither date can show on its own.
+        */}
+        <div className="dash__section">
+          <h2 className="dash__sectiontitle">Signed date</h2>
+          <p className="dash__sectionsub">
+            When deals were executed, from the <code>Signed Date</code> column, rather than when
+            they commenced.{' '}
+            {signing.signedCount === 0
+              ? 'No signed dates are mapped in the current selection.'
+              : `${fmtNumber(signing.signedCount)} of ${fmtNumber(filtered.length)} matching deals carry one.`}
+          </p>
+        </div>
+
+        <div className="kpis">
+          <Kpi
+            label="Deals signed"
+            value={fmtNumber(signing.signedCount)}
+            note={
+              signing.signedFrom && signing.signedTo
+                ? `${fmtDate(signing.signedFrom)} to ${fmtDate(signing.signedTo)}`
+                : 'No signed dates mapped'
+            }
+          />
+          <Kpi
+            label="Signing to commencement"
+            value={signing.medianLagDays === null ? EMPTY : fmtLagDays(signing.medianLagDays)}
+            note={
+              signing.pairedCount === 0
+                ? 'Needs both a signed date and a lease date'
+                : `Median across ${fmtNumber(signing.pairedCount)} deals with both dates`
+            }
+          />
+          <Kpi
+            label="Signed after commencement"
+            value={signing.pairedCount === 0 ? EMPTY : fmtNumber(signing.signedLateCount)}
+            note="Papered after the tenant took the space"
+          />
+        </div>
+
+        <div className="charts">
+          <ChartFrame
+            title={`Deals signed by ${GRAIN_LABEL[signedGrain]}`}
+            subtitle="Deal count, stacked by lease type"
+            wide
+            height={h(280)}
+            empty={signedActivity.buckets.length === 0}
+            emptyLabel="No signed dates in the current selection, so signings cannot be placed on a timeline."
+            footer={<ChartLegend keys={signedActivity.stackKeys} theme={chartTheme} />}
+          >
+            <StackedColumns
+              data={signedActivity.buckets}
+              stackKeys={signedActivity.stackKeys}
+              theme={chartTheme}
+              formatValue={(n) => `${fmtNumber(n)} ${n === 1 ? 'deal' : 'deals'}`}
+              axisFormat={(n) => fmtNumber(n)}
+              wholeNumbers
+              extraTooltipRows={(row) => [
+                { label: 'Area signed', value: `${fmtCompact(Number(row.area ?? 0))} SF` },
+              ]}
+            />
+          </ChartFrame>
+
+          <ChartFrame
+            title="Signing to commencement"
+            subtitle="Deals per lead-time band, in days"
+            height={h(250)}
+            empty={lagBins.length === 0}
+            emptyLabel="This needs deals carrying both a signed date and a lease date."
+          >
+            <Histogram data={lagBins} theme={chartTheme} unitLabel="days" />
           </ChartFrame>
         </div>
 

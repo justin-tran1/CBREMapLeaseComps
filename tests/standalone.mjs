@@ -82,7 +82,7 @@ await page.getByRole('button', { name: 'Clear all filters' }).click()
 await page.waitForTimeout(400)
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1500)
-check('dashboard charts render', (await page.locator('.chart .recharts-surface').count()) === 8)
+check('dashboard charts render', (await page.locator('.chart .recharts-surface').count()) === 10)
 
 check('the file is self-contained, no asset requests', external.length === 0, external.slice(0, 3).join(' '))
 const realErrors = errors.filter(

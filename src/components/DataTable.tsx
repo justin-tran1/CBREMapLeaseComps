@@ -48,7 +48,7 @@ const COLUMNS: Column[] = [
   },
   {
     key: 'executionDate',
-    label: 'Executed',
+    label: 'Signed',
     render: (d) => fmtDate(d.executionDate),
     sortValue: (d) => d.executionDate?.getTime() ?? null,
   },

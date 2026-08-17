@@ -203,9 +203,9 @@ function bucketKey(date: Date, grain: TimeGrain): { key: string; label: string; 
 }
 
 /** Pick a grain that yields a readable number of columns for the span in the data. */
-export function chooseGrain(deals: LeaseDeal[]): TimeGrain {
+export function chooseGrain(deals: LeaseDeal[], dateOf: DealDate = COMMENCEMENT): TimeGrain {
   const times = deals
-    .map((d) => d.leaseDate?.getTime())
+    .map((d) => dateOf(d)?.getTime())
     .filter((t): t is number => typeof t === 'number')
   if (times.length < 2) return 'quarter'
 
@@ -220,13 +220,29 @@ export function chooseGrain(deals: LeaseDeal[]): TimeGrain {
  * `stackKeys` is the ordered set of series present, with everything past the cap
  * folded into a single neutral bucket.
  */
+/** Which date a timeline buckets on. Commencement drives most charts; signing drives its own. */
+export type DealDate = (deal: LeaseDeal) => Date | null
+
+export const COMMENCEMENT: DealDate = (d) => d.leaseDate
+export const SIGNED: DealDate = (d) => d.executionDate
+
+export interface TimeSeriesOptions {
+  /** Which date to bucket on. Defaults to commencement. */
+  dateOf?: DealDate
+  /** What a stacked segment measures. Area answers "how much space"; deals answers "how many". */
+  measure?: 'area' | 'deals'
+}
+
 export function timeSeries(
   deals: LeaseDeal[],
   grain: TimeGrain,
   splitBy: ((d: LeaseDeal) => string) | null,
   maxSeries = 5,
+  options: TimeSeriesOptions = {},
 ): { buckets: TimeBucket[]; stackKeys: string[] } {
-  const withDates = deals.filter((d) => d.leaseDate instanceof Date)
+  const dateOf = options.dateOf ?? COMMENCEMENT
+  const measure = options.measure ?? 'area'
+  const withDates = deals.filter((d) => dateOf(d) instanceof Date)
 
   let stackKeys: string[] = []
   let mapToSeries: (d: LeaseDeal) => string = () => 'All deals'
@@ -252,7 +268,7 @@ export function timeSeries(
   const buckets = new Map<string, TimeBucket & { rentPairs: Array<{ value: number | null; weight: number | null }> }>()
 
   for (const deal of withDates) {
-    const { key, label, sort } = bucketKey(deal.leaseDate as Date, grain)
+    const { key, label, sort } = bucketKey(dateOf(deal) as Date, grain)
     let bucket = buckets.get(key)
     if (!bucket) {
       bucket = { key, label, sort, deals: 0, area: 0, avgRent: null, byType: {}, rentPairs: [] }
@@ -265,7 +281,7 @@ export function timeSeries(
     bucket.rentPairs.push({ value: deal.baseRentAnnual, weight: deal.areaLeased })
 
     const series = mapToSeries(deal)
-    bucket.byType[series] = (bucket.byType[series] ?? 0) + (deal.areaLeased ?? 0)
+    bucket.byType[series] = (bucket.byType[series] ?? 0) + (measure === 'deals' ? 1 : deal.areaLeased ?? 0)
   }
 
   const list = [...buckets.values()]
@@ -348,7 +364,7 @@ export function computeCoverage(deals: LeaseDeal[]): CoverageRow[] {
   return [
     { label: 'Mapped location', present: deals.filter((d) => d.lat !== null && d.lon !== null).length, total },
     { label: 'Lease date', present: deals.filter((d) => d.leaseDate !== null).length, total },
-    { label: 'Execution date', present: deals.filter((d) => d.executionDate !== null).length, total },
+    { label: 'Signed date', present: deals.filter((d) => d.executionDate !== null).length, total },
     { label: 'Term length', present: countNum((d) => d.termMonths), total },
     { label: 'Area leased', present: countNum((d) => d.areaLeased), total },
     { label: 'Base rent', present: countNum((d) => d.baseRent), total },
@@ -364,4 +380,63 @@ export function computeCoverage(deals: LeaseDeal[]): CoverageRow[] {
     { label: 'Property subtype', present: countText((d) => d.propertySubtype), total },
     { label: 'Lessor', present: countText((d) => d.lessor), total },
   ]
+}
+
+// ------------------------------------------------------------- signed date
+
+export interface SigningStats {
+  /** Deals carrying a signed date at all. */
+  signedCount: number
+  /** Deals carrying both a signed date and a commencement, so a lead time can be measured. */
+  pairedCount: number
+  /** Days from signing to commencement, one per paired deal. Negative where a lease was */
+  /** signed after it commenced, which happens on renewals papered late. */
+  lagDays: number[]
+  medianLagDays: number | null
+  signedFrom: Date | null
+  signedTo: Date | null
+  /** Share of paired deals signed after commencement, which is worth knowing rather than hiding. */
+  signedLateCount: number
+}
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24
+
+/**
+ * How long a deal takes to go from signature to occupancy.
+ *
+ * This is the one measure that needs both dates, and it is the reason signing deserves its own
+ * section rather than a relabelled copy of the commencement charts: a quarter can be busy for
+ * signings and quiet for commencements, and the gap between the two is the pipeline.
+ */
+export function signingStats(deals: LeaseDeal[]): SigningStats {
+  const lagDays: number[] = []
+  let signedCount = 0
+  let signedLateCount = 0
+  let from: number | null = null
+  let to: number | null = null
+
+  for (const deal of deals) {
+    const signed = deal.executionDate
+    if (!(signed instanceof Date)) continue
+    signedCount++
+
+    const at = signed.getTime()
+    if (from === null || at < from) from = at
+    if (to === null || at > to) to = at
+
+    if (!(deal.leaseDate instanceof Date)) continue
+    const days = Math.round((deal.leaseDate.getTime() - at) / MS_PER_DAY)
+    lagDays.push(days)
+    if (days < 0) signedLateCount++
+  }
+
+  return {
+    signedCount,
+    pairedCount: lagDays.length,
+    lagDays,
+    medianLagDays: median(lagDays),
+    signedFrom: from === null ? null : new Date(from),
+    signedTo: to === null ? null : new Date(to),
+    signedLateCount,
+  }
 }

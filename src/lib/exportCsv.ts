@@ -26,7 +26,7 @@ const COLUMNS: Array<{ header: string; get: (d: LeaseDeal) => unknown }> = [
   { header: 'Location source', get: (d) => (d.geoSource === 'none' ? 'Not located' : d.geoAccuracy || d.geoSource) },
   { header: 'Lease date', get: (d) => (d.leaseDate ? formatDateISO(d.leaseDate) : '') },
   { header: 'Term (months)', get: (d) => d.termMonths ?? '' },
-  { header: 'Execution date', get: (d) => (d.executionDate ? formatDateISO(d.executionDate) : '') },
+  { header: 'Signed date', get: (d) => (d.executionDate ? formatDateISO(d.executionDate) : '') },
   { header: 'Expiration date', get: (d) => (d.expirationDate ? formatDateISO(d.expirationDate) : '') },
   { header: 'Lease type', get: (d) => d.leaseType },
   { header: 'Property subtype', get: (d) => d.propertySubtype },

@@ -39,6 +39,7 @@ const results = await page.evaluate(async () => {
   const draw = await import('/src/components/mapDraw.ts')
   const palette = await import('/src/lib/palette.ts')
   const googleMaps = await import('/src/lib/googleMaps.ts')
+  const chartPrefs = await import('/src/lib/chartPrefs.ts')
   const google3d = await import('/src/components/GoogleMap3D.tsx')
 
   // ------------------------------------------------------------ toNumber
@@ -554,6 +555,86 @@ const results = await page.evaluate(async () => {
   eq('weightedMean falls back without weights', stats.weightedMean([{ value: 10, weight: null }, { value: 20, weight: null }]), 15)
   eq('mean ignores nulls', stats.mean([10, null, 20]), 15)
   eq('median odd', stats.median([5, 1, 3]), 3)
+
+  // ------------------------------------------------------- signed date
+  const dated = (signed, commenced, type = 'NNN', area = 1000) => ({
+    ...withCoords[0],
+    executionDate: signed === null ? null : new Date(signed[0], signed[1], signed[2]),
+    leaseDate: commenced === null ? null : new Date(commenced[0], commenced[1], commenced[2]),
+    leaseType: type,
+    areaLeased: area,
+  })
+  const signedSet = [
+    dated([2024, 0, 10], [2024, 3, 1]),            // 82 days
+    dated([2024, 1, 5], [2024, 7, 1], 'FSG'),      // 178 days
+    dated([2024, 5, 1], [2024, 4, 1]),             // signed a month late
+    dated(null, [2024, 6, 1]),                     // no signed date at all
+    dated([2024, 2, 2], null),                     // signed, never commences
+  ]
+  const sg = stats.signingStats(signedSet)
+  eq('signed count ignores rows with no signed date', sg.signedCount, 4)
+  eq('a lead time needs both dates', sg.pairedCount, 3)
+  eq('median lead time', sg.medianLagDays, 82)
+  eq('a lease signed after commencement is counted', sg.signedLateCount, 1)
+  truthy('a late signing is a negative lead time', Math.min(...sg.lagDays) < 0, sg.lagDays.join(','))
+  eq('signed span starts at the earliest signing', coerce.formatDateISO(sg.signedFrom), '2024-01-10')
+  eq('signed span ends at the latest signing', coerce.formatDateISO(sg.signedTo), '2024-06-01')
+  eq('no signed dates means no span', stats.signingStats([dated(null, [2024, 1, 1])]).signedFrom, null)
+
+  // The timeline buckets on whichever date it is asked for, and the two differ.
+  const byCommencement = stats.timeSeries(signedSet, 'month', null, 5)
+  const bySigned = stats.timeSeries(signedSet, 'month', null, 5, { dateOf: stats.SIGNED })
+  eq('commencement timeline skips rows with no lease date', byCommencement.buckets.length, 4)
+  eq('signed timeline skips rows with no signed date', bySigned.buckets.length, 4)
+  truthy('the two timelines are not the same buckets',
+    byCommencement.buckets.map((b) => b.key).join() !== bySigned.buckets.map((b) => b.key).join(),
+    `${byCommencement.buckets.map((b) => b.key)} vs ${bySigned.buckets.map((b) => b.key)}`)
+  eq('a signed bucket sits in the signing month',
+    stats.timeSeries([dated([2024, 0, 10], [2024, 6, 1])], 'month', null, 5, { dateOf: stats.SIGNED }).buckets[0].key,
+    '2024-01')
+  // A stacked segment can measure space or deals.
+  const asArea = stats.timeSeries([dated([2024, 0, 10], [2024, 0, 20], 'NNN', 5000)], 'month', (d) => d.leaseType, 5)
+  const asDeals = stats.timeSeries([dated([2024, 0, 10], [2024, 0, 20], 'NNN', 5000)], 'month', (d) => d.leaseType, 5, { measure: 'deals' })
+  eq('area is the default measure', asArea.buckets[0].byType.NNN, 5000)
+  eq('deals can be measured instead', asDeals.buckets[0].byType.NNN, 1)
+  eq('the grain can be chosen on the signed date',
+    stats.chooseGrain([dated([2020, 0, 1], [2024, 0, 1]), dated([2024, 0, 1], [2024, 0, 2])], stats.SIGNED),
+    'quarter')
+
+  // ------------------------------------------------- chart palettes and style
+  eq('three chart palettes are offered', palette.CHART_PALETTES.length, 3)
+  truthy('every palette hex is a brand colour',
+    palette.CHART_PALETTES.every((p) => [...p.light, ...p.dark].every((hex) => brandHexes.has(hex))),
+    palette.CHART_PALETTES.map((p) => p.id).join())
+  truthy('every palette fills all six slots',
+    palette.CHART_PALETTES.every((p) => p.light.length === 6 && p.dark.length === 6))
+  truthy('no palette repeats a colour',
+    palette.CHART_PALETTES.every((p) => new Set(p.light).size === 6 && new Set(p.dark).size === 6))
+  /*
+   * The separation figures recorded beside each palette are what the validator measured, and
+   * they are the reason a cool blue-and-sage set was dropped. A palette below the floor must
+   * never reach the picker, so the claim is asserted rather than trusted.
+   */
+  truthy('every palette clears the colour-vision floor',
+    palette.CHART_PALETTES.every((p) => p.measured.light[0] >= 8 && p.measured.dark[0] >= 8),
+    palette.CHART_PALETTES.map((p) => `${p.id}:${p.measured.light[0]}/${p.measured.dark[0]}`).join(' '))
+  truthy('every palette clears the normal-vision floor',
+    palette.CHART_PALETTES.every((p) => p.measured.light[1] >= 15 && p.measured.dark[1] >= 15),
+    palette.CHART_PALETTES.map((p) => `${p.id}:${p.measured.light[1]}/${p.measured.dark[1]}`).join(' '))
+
+  eq('a palette is looked up by id', palette.chartPalette('warm').id, 'warm')
+  eq('an unknown palette falls back to the brand one', palette.chartPalette('nope').id, 'cbre')
+  eq('colours come from the chosen palette', palette.colorForIndex(0, false, 'warm'), palette.CBRE.plum)
+  eq('the default palette is unchanged', palette.colorForIndex(0, false), palette.CATEGORICAL_LIGHT[0])
+  eq('past the last slot is the neutral bucket',
+    palette.colorForIndex(9, false, 'warm'), palette.OTHER_COLOR_LIGHT)
+
+  eq('chart prefs default to the brand palette', chartPrefs.DEFAULT_CHART_PREFS.palette, 'cbre')
+  eq('a stored pref is honoured', chartPrefs.parseChartPrefs({ palette: 'warm', density: 'compact' }).palette, 'warm')
+  eq('an unknown palette in storage is ignored', chartPrefs.parseChartPrefs({ palette: 'rainbow' }).palette, 'cbre')
+  eq('a non-boolean grid setting is ignored', chartPrefs.parseChartPrefs({ showGrid: 'yes' }).showGrid, true)
+  eq('nothing stored yields the defaults', chartPrefs.parseChartPrefs(null), chartPrefs.DEFAULT_CHART_PREFS)
+  truthy('compact charts are shorter', chartPrefs.densityScale('compact') < chartPrefs.densityScale('comfortable'))
 
   // ------------------------------------------------- geocode provider parsing
   const realFetch = window.fetch

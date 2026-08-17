@@ -160,9 +160,9 @@ buildings** button drops the map flat and back again.
 
 Each deal shows, in this order:
 
-Lease date, term length, execution date, lease type, property subtype, rate type, area
-leased, floor, suite, base rent, OpEx, escalation, free rent, TI allowance. Those 14 are
-fixed and in that order. TIs as-is follows the allowance it qualifies when the column is
+Signed date, lease date, term length, lease type, property subtype, rate type, area leased,
+floor, suite, base rent, OpEx, escalation, free rent, TI allowance. Those 14 are fixed and in
+that order. TIs as-is follows the allowance it qualifies when the column is
 present, then lessor, sublessor on a sublease, lessee, and the brokers. Notes, TI notes and
 other concessions sit at the foot of the card, and the Comp ID is in the footer.
 
@@ -199,6 +199,35 @@ lease type, top cities by area leased, base rent by property subtype, top lessor
 distributions for area leased and term length. Time buckets switch between monthly,
 quarterly, and yearly to suit the span in the data.
 
+### The signed date section
+
+Signing is its own question, so it has its own band rather than a relabelled copy of the
+charts above: a quarter can be busy for signings and quiet for commencements, and the gap
+between the two is the pipeline, which is the one thing neither date shows on its own.
+
+Three measures: how many deals carry a signed date and the span they cover, the median time
+from signing to commencement, and how many were papered after the tenant had already taken
+the space. Two charts: deals signed per period stacked by lease type, and the distribution of
+lead times in days. A lease signed after it commenced reads as a negative lead time and is
+counted rather than hidden.
+
+### Chart settings
+
+The **Chart settings** button on the dashboard changes how the charts are drawn:
+
+| Setting | Options |
+| --- | --- |
+| Series palette | CBRE charts, High contrast, Warm |
+| Bar corners | Rounded, square |
+| Trend | Line, filled |
+| Grid lines | On, off |
+| Height | Comfortable, compact |
+
+Choices are saved in the browser. Nothing here can change what a chart *means*: the palettes
+are fixed and ordered so a series keeps its colour when the set is filtered, every multi-series
+chart keeps its legend and tooltips, and there is no option for a second y-axis or a generated
+hue.
+
 A field coverage panel shows how many rows carry a value for each field, which is usually
 the answer when a chart looks thinner than expected. The table beneath lists every matching
 row, sorts on any column, pages at 50 to 1,000 rows, and exports to CSV. The pin button on
@@ -214,7 +243,8 @@ Both tabs share one filter rail:
 - Keyword across every field
 - City and state
 - Lease date, with presets for the last 12 months, 24 months, three years, and year to date
-- Signed date, the same presets on the `Signed Date` column
+- Signed date, the same presets on the `Signed Date` column, which drives its own dashboard
+  section
 - Area leased range
 - Term length range
 - Base rent range
@@ -229,9 +259,9 @@ ticking one city does not zero out the rest. Active filters appear as chips that
 individually.
 
 **Lease date and signed date are separate filters** and they combine. Lease date is
-commencement, the `Start Date` column, and it is what the timeline charts bucket on. Signed
-date is the `Signed Date` column, the same date the popup labels execution date and the
-table labels Executed. A deal signed in one quarter routinely commences in another, so
+commencement, the `Start Date` column. Signed date is the `Signed Date` column: it leads the
+popup card, heads the table as Signed, and drives its own dashboard section. A deal signed in
+one quarter routinely commences in another, so
 "signed this year" and "commencing this year" are different sets: in the sample data, ten
 deals were signed from January 2025 and fifteen commenced from January 2025.
 
@@ -264,11 +294,11 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 344 assertions
+npm run test:units               # terminal 2, 376 assertions
 npm run test:buildings           # terminal 2, 10 checks on the 3D building layer
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 94 end-to-end checks
+npm run test:e2e                 # terminal 2, 115 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
@@ -375,6 +405,20 @@ green and wheat never sit side by side. Measured against a color-vision simulati
 adjacency scores a separation of 1.6, meaning roughly one man in twelve cannot tell two
 neighbouring stacked segments apart. Moving terracotta between them lifts the worst
 adjacent pair to 14.7 and changes no color values.
+
+The two alternative palettes in the chart settings are built from the same brand list and were
+measured the same way, because the pairs that fail are not the ones that look risky. A cool
+blue-and-sage set that looked entirely reasonable scored 6.2 for normal vision and was dropped
+rather than shipped. What each palette scores is printed beside it in the picker:
+
+| Palette | Closest adjacent pair, light | Dark |
+| --- | --- | --- |
+| CBRE charts | ΔE 14.7 colour-vision / 23.7 normal | 14.7 / 20.2 |
+| High contrast | 13.7 / 23.2 | 12.1 / 15.1 |
+| Warm | 18.1 / 19.5 | 14.7 / 19.5 |
+
+A unit test asserts that every palette on offer clears both floors, so a palette cannot reach
+the picker without having been measured.
 
 The brand guide defines no dark-mode chart palette. The dark theme keeps each slot's
 identity and substitutes the brand color from the same family that reads on a dark surface,
