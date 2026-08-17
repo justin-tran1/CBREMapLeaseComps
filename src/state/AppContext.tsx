@@ -15,8 +15,11 @@ import {
   clearGeocodeCache,
   geocodeBatch,
   getCached,
+  isBuildingGrade,
+  type GeocodeHit,
   type GeocodeProviderId,
 } from '../lib/geocode'
+import { getGoogleKey, resetMapsJs, setGoogleKey as setStoredGoogleKey } from '../lib/googleMaps'
 import { addressKey, buildLocationGroups, buildSites, normalizeDeals } from '../lib/normalize'
 import { readSpreadsheet } from '../lib/parse'
 import type {
@@ -32,10 +35,13 @@ import type {
 export type Phase = 'upload' | 'mapping' | 'ready'
 export type TabId = 'map' | 'dashboard'
 export type ThemeId = 'light' | 'dark'
+/** Which renderer draws the map. The Google engine needs an API key and appears only with one. */
+export type MapEngineId = 'maplibre' | 'google3d'
 
 const THEME_KEY = 'cbre-hcls-mapper.theme'
 const BASEMAP_KEY = 'cbre-hcls-mapper.basemap.v2'
 const PROVIDER_KEY = 'cbre-hcls-mapper.geocoder'
+const ENGINE_KEY = 'cbre-hcls-mapper.mapEngine'
 
 function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -83,12 +89,19 @@ interface AppState {
   geocode: GeocodeProgress
   geocodeCacheSize: number
   unlocatedCount: number
+  /** Locations precise enough to name a building. The rest are reachable by their pin. */
+  buildingGradeCount: number
+
+  googleKey: string
+  mapEngine: MapEngineId
 
   focusRequest: FocusRequest | null
 
   setTab: (tab: TabId) => void
   setTheme: (theme: ThemeId) => void
   setBasemap: (basemap: BasemapId) => void
+  setGoogleKey: (key: string) => void
+  setMapEngine: (engine: MapEngineId) => void
   setFilters: (update: Filters | ((prev: Filters) => Filters)) => void
   resetFilters: () => void
 
@@ -125,6 +138,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeId>(() => readStored(THEME_KEY, ['light', 'dark'] as const, 'light'))
   const [basemap, setBasemapState] = useState<BasemapId>(() =>
     readStored(BASEMAP_KEY, ['aerial', 'hybrid', 'cbre-light', 'streets', 'gray', 'topo', 'dark'] as const, 'aerial'),
+  )
+  const [googleKey, setGoogleKeyState] = useState<string>(getGoogleKey)
+  const [mapEngine, setMapEngineState] = useState<MapEngineId>(() =>
+    readStored(ENGINE_KEY, ['maplibre', 'google3d'] as const, 'maplibre'),
   )
 
   const [file, setFile] = useState<File | null>(null)
@@ -244,6 +261,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         deal.lon = hit.lon
         deal.geoSource = 'cache'
         deal.geoAccuracy = `${hit.provider} (cached)`
+        deal.geoPrecision = hit.precision
+        deal.placeId = hit.placeId ?? ''
       }
     }
 
@@ -286,7 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      const pending = new Map<string, { lat: number; lon: number; accuracy: string; provider: string } | null>()
+      const pending = new Map<string, GeocodeHit | null>()
       const errors = new Map<string, string>()
       let flushHandle: number | null = null
 
@@ -317,6 +336,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               geoSource: 'geocoder' as const,
               geoAccuracy: `${hit.provider} · ${hit.accuracy}`,
               geoError: '',
+              geoPrecision: hit.precision,
+              placeId: hit.placeId ?? '',
             }
           })
           return changed ? next : current
@@ -374,6 +395,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setGeocodeCacheSize(0)
   }, [])
 
+  /**
+   * Store the key and re-bootstrap Google.
+   *
+   * Removing the key has to drop the Google map engine too, otherwise the view is left asking
+   * for tiles it can no longer fetch. The loaded Maps script is discarded so a corrected key
+   * takes effect without a page reload.
+   */
+  const setGoogleKey = useCallback((key: string) => {
+    setStoredGoogleKey(key)
+    resetMapsJs()
+    setGoogleKeyState(getGoogleKey())
+    if (!getGoogleKey()) {
+      setMapEngineState('maplibre')
+      writeStored(ENGINE_KEY, 'maplibre')
+      setGeocodeProviderState((prev) => (prev === 'google' ? 'auto' : prev))
+    }
+  }, [])
+
+  const setMapEngine = useCallback((engine: MapEngineId) => {
+    // The Google engine cannot draw anything without a key, so refuse rather than show a void.
+    const next: MapEngineId = engine === 'google3d' && !getGoogleKey() ? 'maplibre' : engine
+    setMapEngineState(next)
+    writeStored(ENGINE_KEY, next)
+  }, [])
+
   const requestFocus = useCallback((dealId: string) => {
     focusToken.current += 1
     setFocusRequest({ dealId, token: focusToken.current })
@@ -388,6 +434,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const facets = useMemo(() => computeFacets(deals), [deals])
   const bounds = useMemo(() => computeBounds(deals), [deals])
   const unlocatedCount = useMemo(() => deals.filter((d) => d.lat === null || d.lon === null).length, [deals])
+  const buildingGradeCount = useMemo(() => sites.filter((s) => isBuildingGrade(s.precision)).length, [sites])
 
   const value = useMemo<AppState>(
     () => ({
@@ -411,10 +458,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       geocode,
       geocodeCacheSize,
       unlocatedCount,
+      buildingGradeCount,
+      googleKey,
+      mapEngine,
       focusRequest,
       setTab,
       setTheme,
       setBasemap,
+      setGoogleKey,
+      setMapEngine,
       setFilters,
       resetFilters,
       loadFile,
@@ -433,7 +485,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [
       phase, tab, theme, basemap, sheet, columnMap, parseError, loadingFile, deals, filtered,
       sites, filteredSites, facets, bounds, filters, geocodeProvider, geocode, geocodeCacheSize,
-      unlocatedCount, focusRequest, setTheme, setBasemap, setFilters, resetFilters, loadFile,
+      unlocatedCount, buildingGradeCount, googleKey, mapEngine, focusRequest, setTheme,
+      setBasemap, setGoogleKey, setMapEngine, setFilters, resetFilters, loadFile,
       changeSheet, setColumnMap, confirmMapping, reopenMapping, reset, setGeocodeProvider,
       startGeocoding, cancelGeocoding, purgeGeocodeCache, requestFocus, clearFocus,
     ],

@@ -16,6 +16,7 @@ import {
 import { useApp } from '../state/AppContext'
 import { BUILDING_SOURCE_ID, buildStyle, getBasemap, LAYER, SOURCE } from '../lib/basemaps'
 import { markerColor } from '../lib/palette'
+import { isBuildingGrade } from '../lib/geocode'
 import {
   footprintKey,
   haversineMeters,
@@ -26,6 +27,7 @@ import {
   shapeLabel,
 } from '../lib/geometry'
 import { BasemapSwitcher } from './BasemapSwitcher'
+import { GoogleSettings } from './GoogleSettings'
 import { MapSearch } from './MapSearch'
 import { PropertyPopup } from './PropertyPopup'
 import { DrawController, shapeToFeature, type DrawMode } from './mapDraw'
@@ -390,6 +392,13 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
 
     for (const site of siteIndexRef.current.values()) {
       if (checked >= BUILDING_MATCH_LIMIT) break
+      /*
+       * A coordinate has to be rooftop-grade before it may name a building. A street
+       * interpolation sits in the roadway, so the footprint containing it belongs to whichever
+       * neighbour the interpolation drifted towards. Skipping those is what stops the map
+       * showing the wrong building; the comp is still on the map, on its pin.
+       */
+      if (!isBuildingGrade(site.precision)) continue
       if (!bounds.contains([site.lon, site.lat] as LngLatLike)) continue
       checked++
 
@@ -699,6 +708,8 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
   const activeShape = previewShape ?? filters.shape
   const mappedCount = filtered.filter((d) => d.lat !== null && d.lon !== null).length
   const hiddenByLocation = filtered.length - mappedCount
+  const buildingGradeCount = filteredSites.filter((s) => isBuildingGrade(s.precision)).length
+  const looselyLocated = filteredSites.length - buildingGradeCount
 
   const drawHint =
     drawMode === 'polygon'
@@ -765,6 +776,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
 
       <div className="map-overlay map-topright">
         <BasemapSwitcher value={basemap} onChange={setBasemap} />
+        <GoogleSettings />
 
         <div className="floatcard maptools" role="group" aria-label="Map tools">
           <button
@@ -883,6 +895,23 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
             <div className="map-status__line muted">
               <IconCube size={13} />
               <span>Zoom past street level, then click a green building for its deals</span>
+            </div>
+          )}
+
+          {/*
+            Say why a building is not green, because silence reads as a bug. A comp located by
+            street interpolation sits in the roadway, so the map declines to name a building
+            for it rather than colour in a neighbour.
+          */}
+          {threeD && !buildingsFailed && looselyLocated > 0 && (
+            <div className="map-status__line muted">
+              <IconTarget size={13} />
+              <span>
+                {buildingGradeCount.toLocaleString('en-US')} of{' '}
+                {filteredSites.length.toLocaleString('en-US')} located precisely enough to name a
+                building. {looselyLocated.toLocaleString('en-US')} came back as a street
+                interpolation and stay on their pins.
+              </span>
             </div>
           )}
 

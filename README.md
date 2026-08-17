@@ -87,18 +87,57 @@ listing side. `Sublessor` does not disturb `Lessor`. `Tenant`, `Tenant NAICS Cod
 ### 3. Locate the addresses
 
 Rows that already carry latitude and longitude plot immediately. Everything else is
-geocoded from street address, city, state, and ZIP:
+geocoded from street address, city, state, and ZIP.
 
-- **US Census Bureau** for United States addresses. Free, no key, no rate limit.
-- **Photon** and **Nominatim**, both OpenStreetMap services, for anything the Census
-  geocoder cannot match and for addresses outside the US.
+**Precision is recorded, not assumed**, because how precisely a row is located decides what
+the map is allowed to say about it:
 
-The default setting tries all three in that order. Results are cached in the browser, so
-re-uploading the same book costs no lookups, and deals sharing an address are looked up
-once rather than once per row.
+| Grade | What it means | May name a building |
+| --- | --- | --- |
+| Rooftop | The building itself | Yes |
+| Address point | A point for the property | No |
+| Street interpolation | Guessed from the house-number range along the street centerline | No |
+| Approximate | A street, locality or postcode centre | No |
+
+The providers, in the order the automatic setting tries them:
+
+- **Photon** (OpenStreetMap, free, no key) leads, because it names the OSM object it matched,
+  so a `building` or a `place=house` match is recognisable as the building itself.
+- **US Census Bureau** (free, no key, US only) follows. It walks the house-number range along
+  a TIGER street centerline, so its answer always lands in the roadway: dependable for a pin,
+  never precise enough to name a building.
+- **Nominatim** (OpenStreetMap, free, no key) is the last resort, since its usage policy caps
+  it at one lookup per second.
+- **Google Geocoding** leads whenever a key is set. It is the only provider that reports
+  rooftop precision explicitly, and it returns a place id.
+
+The chain keeps the **most precise** answer rather than the first one. This matters: with the
+Census leading and first-answer-wins, every US address settled for a street interpolation even
+when Photon held the actual building, and that is what put comps on their neighbours' buildings.
+
+Results are cached in the browser, so re-uploading the same book costs no lookups, and deals
+sharing an address are looked up once rather than once per row.
 
 If a corporate network blocks these services, the progress bar reports it. Add `Latitude`
-and `Longitude` columns to the sheet and the tool skips geocoding entirely.
+and `Longitude` columns to the sheet and the tool skips geocoding entirely. Coordinates typed
+into the sheet are treated as rooftop-grade, since putting them there is a deliberate
+statement about the building.
+
+### Connecting Google (optional)
+
+Everything above works with no key and no account. The **Google** button on the map takes a
+Google Maps Platform key and unlocks two things:
+
+- **Rooftop geocoding.** Google returns `ROOFTOP` coordinates and a place id per address,
+  which is what lets a comp name its building. Geocoding is an Essentials SKU: roughly $5 per
+  1,000 lookups with 10,000 free a month, and a 74-row book with 32 unique addresses costs 32
+  lookups, cached thereafter.
+- **A photorealistic 3D engine.** Google's own 3D tiles, selectable as a map engine. This is
+  an Enterprise SKU with 1,000 free map loads a month, so it is off by default.
+
+The key is held in this browser's local storage. It is never written into the standalone file,
+the build, or the repository, and it is sent nowhere except Google. Removing it drops the
+Google engine and the Google geocoder immediately.
 
 ## The map
 
@@ -225,17 +264,18 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 271 assertions
+npm run test:units               # terminal 2, 327 assertions
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 82 end-to-end checks
+npm run test:e2e                 # terminal 2, 94 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
 ```
 
 `tests/units.mjs` covers value coercion, header matching, geometry, building-footprint
-containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation, and the
+containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation,
+geocoding precision grading, the Google response parser and place-id click resolution, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
 practice's export schema land on the right field. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
@@ -251,7 +291,8 @@ the map's own gestures suspend only while a shape is in flight. Recharts draws t
 dashboard. SheetJS reads the workbooks.
 
 Building footprints and heights come from OpenStreetMap through OpenFreeMap, and aerial
-imagery from Esri. Both are free and need no key. If a network blocks the building tiles
+imagery from Esri. Both are free and need no key. Google is optional throughout: nothing in
+the default path calls it, and no key ships in the build. If a network blocks the building tiles
 the map says so and carries on with pins, filters and the dashboard intact.
 
 Matching a comp to its building runs per comp rather than per building: each visible deal
@@ -275,6 +316,28 @@ click area on the subject building:
 A footprint that fails these tests is left grey rather than approximated, and clicks only
 ever go to footprints that passed. `tests/smoke.mjs` puts a 1.3 km campus polygon around the
 fixture building and asserts that ground 190 m away opens nothing.
+
+There is a fourth rule, and it is the one that matters most: **the comp's own coordinate has
+to be rooftop-grade before any of the above runs.** Three correct rules applied to a
+coordinate sitting in the roadway still name a neighbour, because whichever footprint contains
+that point is a matter of which way the interpolation drifted. Comps located less precisely
+than rooftop are reachable by their pin and colour in nothing, and the map says how many are in
+that state rather than leaving the absence looking like a fault.
+
+### The photorealistic engine
+
+With a Google key, **Photorealistic 3D (Google)** is selectable as a second engine, and it
+identifies buildings a completely different way. Google's 3D tiles are a photogrammetry mesh:
+terrain, textures and buildings baked into one continuous model, with no per-building features
+in it at all, so nothing can be picked out of the mesh geometrically. Instead Google reports a
+**place id** for the place clicked, and the Google geocoder records a place id for every comp,
+so a click is resolved by comparing two identifiers. No footprint, no polygon-size rule, no
+neighbour to get wrong.
+
+Its limits are worth stating. A comp geocoded without a key has no place id, and Google may
+report a place the comp set has never heard of; both fall back to the nearest comp within 90 m
+of the click, and beyond that nothing opens. The draw tools stay on the MapLibre engine, which
+remains the default and needs no key, no billing, and no quota.
 
 ```
 src/
@@ -307,3 +370,8 @@ Files are read in the browser. Nothing uploads to a server. The only outbound re
 map tiles from CARTO, OpenStreetMap, and Esri, and geocoding lookups that send the address
 text only when a sheet lacks coordinates. Geocoding results cache in browser local storage
 and clear from the header bar.
+
+Connecting a Google key adds Google to that list, and only then: address text goes to the
+Geocoding API, and the photorealistic engine fetches tiles, when those are the selected
+options. The key itself lives in browser local storage and is sent nowhere but Google. Deal
+terms are never transmitted to any service, keyed or not.

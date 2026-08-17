@@ -5,13 +5,15 @@ import { DashboardTab } from './components/DashboardTab'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { FilterRail } from './components/FilterRail'
 import { GeocodeBar } from './components/GeocodeBar'
+import { GoogleMap3D } from './components/GoogleMap3D'
 import { MapTab } from './components/MapTab'
 import { TopBar } from './components/TopBar'
 import { UploadScreen } from './components/UploadScreen'
 
 function Shell() {
-  const { phase, tab } = useApp()
+  const { phase, tab, mapEngine } = useApp()
   const [railOpen, setRailOpen] = useState(true)
+  const google3d = mapEngine === 'google3d'
 
   return (
     <div className="app">
@@ -28,14 +30,24 @@ function Shell() {
 
             {/*
               The map stays mounted while the dashboard is showing so switching tabs keeps
-              the pan, zoom and open popup exactly where the user left them.
+              the pan, zoom and open popup exactly where the user left them. Only one engine
+              is ever mounted: two live WebGL maps for one view would be wasteful, and the
+              Google one bills per load.
             */}
             <ErrorBoundary>
-              <MapTab
-                hidden={tab !== 'map'}
-                railOpen={railOpen}
-                onOpenRail={() => setRailOpen(true)}
-              />
+              {google3d ? (
+                <GoogleMap3D
+                  hidden={tab !== 'map'}
+                  railOpen={railOpen}
+                  onOpenRail={() => setRailOpen(true)}
+                />
+              ) : (
+                <MapTab
+                  hidden={tab !== 'map'}
+                  railOpen={railOpen}
+                  onOpenRail={() => setRailOpen(true)}
+                />
+              )}
             </ErrorBoundary>
 
             {tab === 'dashboard' && (

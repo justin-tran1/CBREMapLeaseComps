@@ -1,3 +1,14 @@
+/**
+ * How tightly a geocoded coordinate pins an address down, worst to best.
+ *
+ *  - approximate   A street, locality or postcode centre. Hundreds of metres out.
+ *  - interpolated  Guessed from the house-number range along a street centerline. Typically
+ *                  10 to 40 m out, and routinely on the wrong side of the street.
+ *  - parcel        An address point for the property.
+ *  - rooftop       The building itself.
+ */
+export type GeocodePrecision = 'approximate' | 'interpolated' | 'parcel' | 'rooftop'
+
 /** Canonical field keys the app understands. Every uploaded column is mapped onto one of these. */
 export type FieldKey =
   // Location
@@ -117,6 +128,13 @@ export interface LeaseDeal {
   geoSource: 'file' | 'cache' | 'geocoder' | 'none'
   geoAccuracy: string
   geoError: string
+  /**
+   * How tightly the coordinate pins the address down. Only a rooftop-grade coordinate may
+   * claim a building on the map; anything looser plots a pin and stops there.
+   */
+  geoPrecision: GeocodePrecision
+  /** Google place id, when Google resolved the address. Used for exact clicks in the 3D view. */
+  placeId: string
 
   // Asset
   propertyType: string
@@ -196,6 +214,10 @@ export interface Site {
   state: string
   zip: string
   deals: LeaseDeal[]
+  /** The best precision among the deals here, since they share one coordinate. */
+  precision: GeocodePrecision
+  /** Set when Google resolved the address, and the handle the 3D view matches clicks against. */
+  placeId: string
 }
 
 export type BasemapId =

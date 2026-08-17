@@ -1139,6 +1139,75 @@ h1, h2, h3, h4 {
   font-weight: 400;
 }
 
+.basemap__option:disabled {
+  opacity: 0.5;
+}
+
+.basemap__option:disabled:hover {
+  background: transparent;
+}
+
+/* Google Maps Platform settings. Its own wrapper class, so a test or a style that means the
+   basemap switcher never picks up this popover as well. */
+.gpanel {
+  position: relative;
+}
+
+.gsettings {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px;
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+}
+
+.gsettings__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.gsettings__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gsettings__sep {
+  border-top: 1px solid var(--border);
+  margin: 3px 0 1px;
+}
+
+/* the deal panel on the Google 3D engine, which has no map popups of its own */
+.g3d-panel {
+  max-width: 372px;
+  width: min(372px, calc(100vw - 32px));
+}
+
+.g3d-panel__card {
+  position: relative;
+  padding: 0;
+  max-height: min(76vh, 680px);
+  overflow-y: auto;
+}
+
+.g3d-panel__close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  background: var(--surface);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* map tool buttons */
 .maptools {
   display: flex;

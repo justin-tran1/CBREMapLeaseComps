@@ -14,7 +14,8 @@ import {
   toText,
 } from './coerce'
 import { fmtEscalationPercent, fmtEscalationRate, fmtEscalationValue, isMonthlyQuote } from './format'
-import type { ColumnMap, LeaseDeal, ParsedSheet, Site } from '../types'
+import { PRECISION_RANK } from './geocode'
+import type { ColumnMap, GeocodePrecision, LeaseDeal, ParsedSheet, Site } from '../types'
 
 /**
  * Suite, unit, floor and building qualifiers confuse geocoders, so strip them for lookup.
@@ -141,6 +142,13 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       geoSource: hasFileCoords ? 'file' : 'none',
       geoAccuracy: hasFileCoords ? 'From file' : '',
       geoError: '',
+      /*
+       * Coordinates typed into the sheet are taken at face value. Someone put a latitude and
+       * longitude on this row deliberately, which is a stronger statement about the building
+       * than any geocoder makes, so they are allowed to claim one.
+       */
+      geoPrecision: hasFileCoords ? 'rooftop' : 'approximate',
+      placeId: '',
 
       propertyType: toText(pick(row, map, 'propertyType')),
       propertySubtype: toText(pick(row, map, 'propertySubtype')),
@@ -299,6 +307,12 @@ export function buildSites(deals: LeaseDeal[]): Site[] {
       city: group.find((d) => d.city.trim())?.city ?? '',
       state: group.find((d) => d.state.trim())?.state ?? '',
       zip: group.find((d) => d.zip.trim())?.zip ?? '',
+      // These deals share one coordinate, so they share its precision. Take the best claim.
+      precision: group.reduce<GeocodePrecision>(
+        (best, d) => (PRECISION_RANK[d.geoPrecision] > PRECISION_RANK[best] ? d.geoPrecision : best),
+        'approximate',
+      ),
+      placeId: group.find((d) => d.placeId)?.placeId ?? '',
       deals: [...group].sort((a, b) => {
         const at = a.leaseDate?.getTime() ?? 0
         const bt = b.leaseDate?.getTime() ?? 0

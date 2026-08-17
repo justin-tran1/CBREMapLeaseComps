@@ -1,5 +1,5 @@
 import { useApp } from '../state/AppContext'
-import { GEOCODE_PROVIDERS } from '../lib/geocode'
+import { availableProviders } from '../lib/geocode'
 import { IconAlert, IconCheck, IconTrash, IconX } from './Icons'
 
 export function GeocodeBar() {
@@ -13,6 +13,7 @@ export function GeocodeBar() {
     unlocatedCount,
     geocodeCacheSize,
     purgeGeocodeCache,
+    googleKey,
   } = useApp()
 
   if (deals.length === 0) return null
@@ -84,7 +85,7 @@ export function GeocodeBar() {
           onChange={(e) => setGeocodeProvider(e.target.value as typeof geocodeProvider)}
           aria-label="Geocoding service"
         >
-          {GEOCODE_PROVIDERS.map((provider) => (
+          {availableProviders(googleKey !== '').map((provider) => (
             <option key={provider.id} value={provider.id} title={provider.description}>
               {provider.label}
             </option>

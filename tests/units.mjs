@@ -38,6 +38,8 @@ const results = await page.evaluate(async () => {
   const geocode = await import('/src/lib/geocode.ts')
   const draw = await import('/src/components/mapDraw.ts')
   const palette = await import('/src/lib/palette.ts')
+  const googleMaps = await import('/src/lib/googleMaps.ts')
+  const google3d = await import('/src/components/GoogleMap3D.tsx')
 
   // ------------------------------------------------------------ toNumber
   eq('toNumber $1,234.56', coerce.toNumber('$1,234.56'), 1234.56)
@@ -532,7 +534,7 @@ const results = await page.evaluate(async () => {
   })
   eq('nominatim parsed', [got[0].hit.lat, got[0].hit.lon], [41.88, -87.63])
 
-  // Auto chain: census misses, photon answers.
+  // Auto chain: photon leads because it is the only key-less provider that can name a building.
   geocode.clearGeocodeCache()
   calls.length = 0
   stub((url) => {
@@ -545,7 +547,7 @@ const results = await page.evaluate(async () => {
     provider: 'auto', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
   })
   eq('auto falls through to photon', [got[0].hit.lat, got[0].hit.lon], [35.2, -80.8])
-  truthy('auto tried census first', calls[0].includes('census'), calls.join(' | '))
+  truthy('auto tries photon first', calls[0].includes('photon'), calls.join(' | '))
 
   // Every provider fails.
   geocode.clearGeocodeCache()
@@ -565,6 +567,184 @@ const results = await page.evaluate(async () => {
     provider: 'census', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
   })
   eq('blocked network message', got[0].error, 'Network blocked or offline')
+
+  // ------------------------------------------- precision, and who may claim a building
+  eq('osm building way is rooftop', geocode.osmPrecision('building', 'yes'), 'rooftop')
+  eq('osm place=house is rooftop', geocode.osmPrecision('place', 'house'), 'rooftop')
+  eq('photon house is rooftop', geocode.osmPrecision('', '', 'house'), 'rooftop')
+  eq('osm housenumber is a parcel point', geocode.osmPrecision('addr', 'housenumber'), 'parcel')
+  eq('osm street is approximate', geocode.osmPrecision('highway', 'residential'), 'approximate')
+  eq('osm clinic is a parcel point', geocode.osmPrecision('healthcare', 'clinic'), 'parcel')
+  eq('unknown osm tags are approximate', geocode.osmPrecision('boundary', 'administrative'), 'approximate')
+
+  eq('google ROOFTOP', geocode.googlePrecision('ROOFTOP'), 'rooftop')
+  eq('google RANGE_INTERPOLATED', geocode.googlePrecision('RANGE_INTERPOLATED'), 'interpolated')
+  eq('google GEOMETRIC_CENTER', geocode.googlePrecision('GEOMETRIC_CENTER'), 'parcel')
+  eq('google APPROXIMATE', geocode.googlePrecision('APPROXIMATE'), 'approximate')
+  eq('google blank precision', geocode.googlePrecision(''), 'approximate')
+
+  truthy('rooftop may claim a building', geocode.isBuildingGrade('rooftop'))
+  truthy('a parcel point may not claim a building', !geocode.isBuildingGrade('parcel'))
+  truthy('an interpolation may not claim a building', !geocode.isBuildingGrade('interpolated'))
+  truthy('an approximation may not claim a building', !geocode.isBuildingGrade('approximate'))
+
+  // The Census is always an interpolation. Labelling it rooftop is what named wrong buildings.
+  geocode.clearGeocodeCache()
+  stub(() => json({ result: { addressMatches: [{ coordinates: { x: -118.25, y: 34.05 } }] } }))
+  got = []
+  await geocode.geocodeBatch([{ key: 'p1', query: '515 S Flower St' }], {
+    provider: 'census', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
+  })
+  eq('census reports an interpolation', got[0].hit.precision, 'interpolated')
+  truthy('census may not claim a building', !geocode.isBuildingGrade(got[0].hit.precision))
+
+  geocode.clearGeocodeCache()
+  stub(() => json({ features: [{ geometry: { coordinates: [-97.74, 30.26] }, properties: { type: 'house', osm_key: 'building', osm_value: 'yes' } }] }))
+  got = []
+  await geocode.geocodeBatch([{ key: 'p2', query: '1 A St' }], {
+    provider: 'photon', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
+  })
+  eq('photon building match is rooftop', got[0].hit.precision, 'rooftop')
+
+  // Best precision wins, not first answer. Photon has the building, so the Census is never asked.
+  geocode.clearGeocodeCache()
+  calls.length = 0
+  stub((url) => {
+    if (url.includes('photon')) return json({ features: [{ geometry: { coordinates: [-71.086, 42.3656] }, properties: { type: 'house' } }] })
+    if (url.includes('census')) return json({ result: { addressMatches: [{ coordinates: { x: -71.09, y: 42.37 } }] } })
+    return json([])
+  })
+  got = []
+  await geocode.geocodeBatch([{ key: 'p3', query: '500 Kendall St' }], {
+    provider: 'auto', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
+  })
+  eq('the rooftop answer is kept', [got[0].hit.lat, got[0].hit.precision], [42.3656, 'rooftop'])
+  truthy('a rooftop hit stops the chain', calls.every((u) => !u.includes('census')), calls.join(' | '))
+
+  // Photon only has the street, so the Census interpolation is the better of the two.
+  geocode.clearGeocodeCache()
+  calls.length = 0
+  stub((url) => {
+    if (url.includes('photon')) return json({ features: [{ geometry: { coordinates: [-71.1, 42.4] }, properties: { type: 'street', osm_key: 'highway' } }] })
+    if (url.includes('census')) return json({ result: { addressMatches: [{ coordinates: { x: -71.09, y: 42.37 } }] } })
+    return json([])
+  })
+  got = []
+  await geocode.geocodeBatch([{ key: 'p4', query: '500 Kendall St' }], {
+    provider: 'auto', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
+  })
+  eq('a street match loses to an interpolation', [got[0].hit.lat, got[0].hit.precision], [42.37, 'interpolated'])
+  truthy('a weak first answer does not stop the chain', calls.some((u) => u.includes('census')), calls.join(' | '))
+
+  // A v2 cache entry predates precision, so it must not be trusted with a building.
+  geocode.clearGeocodeCache()
+  geocode.putCached('legacy', { lat: 34.05, lon: -118.25, accuracy: 'Rooftop / street match', provider: 'US Census' })
+  eq('a precision-less cache entry reads as approximate', geocode.getCached('legacy').precision, 'approximate')
+  truthy('a legacy cache entry may not claim a building',
+    !geocode.isBuildingGrade(geocode.getCached('legacy').precision))
+
+  // ------------------------------------------------------- Google, behind a key
+  eq('the chain skips google with no key', geocode.chainFor('auto', false), ['photon', 'census', 'osm'])
+  eq('the chain leads with google when keyed', geocode.chainFor('auto', true), ['google', 'photon', 'census', 'osm'])
+  eq('a named provider is used alone', geocode.chainFor('photon', true), ['photon'])
+  eq('the picker hides google with no key',
+    geocode.availableProviders(false).some((p) => p.id === 'google'), false)
+  eq('the picker offers google when keyed',
+    geocode.availableProviders(true).some((p) => p.id === 'google'), true)
+
+  const gRooftop = geocode.parseGoogleResponse({
+    status: 'OK',
+    results: [{ geometry: { location: { lat: 42.3656, lng: -71.086 }, location_type: 'ROOFTOP' }, place_id: 'PLACE_A' }],
+  })
+  eq('google rooftop parsed', [gRooftop.lat, gRooftop.lon, gRooftop.precision, gRooftop.placeId],
+    [42.3656, -71.086, 'rooftop', 'PLACE_A'])
+  eq('google interpolation parsed', geocode.parseGoogleResponse({
+    status: 'OK',
+    results: [{ geometry: { location: { lat: 1, lng: 2 }, location_type: 'RANGE_INTERPOLATED' }, place_id: 'P' }],
+  }).precision, 'interpolated')
+  // A partial match resolved something other than the address asked for.
+  eq('a google partial match is downgraded', geocode.parseGoogleResponse({
+    status: 'OK',
+    results: [{ geometry: { location: { lat: 1, lng: 2 }, location_type: 'ROOFTOP' }, place_id: 'P', partial_match: true }],
+  }).precision, 'approximate')
+  eq('google zero results is not an error', geocode.parseGoogleResponse({ status: 'ZERO_RESULTS', results: [] }), null)
+  truthy('a denied google key raises', (() => {
+    try {
+      geocode.parseGoogleResponse({ status: 'REQUEST_DENIED', error_message: 'API keys with referer restrictions' })
+      return false
+    } catch (err) {
+      return /referer/.test(err.message)
+    }
+  })())
+
+  googleMaps.setGoogleKey('AIzaTESTKEYTESTKEYTESTKEY0123')
+  truthy('a saved key is reported present', googleMaps.hasGoogleKey())
+  geocode.clearGeocodeCache()
+  calls.length = 0
+  stub((url) => {
+    if (url.includes('googleapis')) return json({
+      status: 'OK',
+      results: [{ geometry: { location: { lat: 32.88, lng: -117.23 }, location_type: 'ROOFTOP' }, place_id: 'PLACE_B' }],
+    })
+    return json({})
+  })
+  got = []
+  await geocode.geocodeBatch([{ key: 'g1', query: '10996 Torreyana Rd' }], {
+    provider: 'auto', signal: new AbortController().signal, onProgress: () => {}, onResult: (o) => got.push(o),
+  })
+  eq('google leads and answers', [got[0].hit.provider, got[0].hit.precision, got[0].hit.placeId],
+    ['Google', 'rooftop', 'PLACE_B'])
+  truthy('the key is sent to google', calls[0].includes('key=AIzaTESTKEYTESTKEYTESTKEY0123'), calls[0])
+  eq('the place id survives the cache', geocode.getCached('g1').placeId, 'PLACE_B')
+
+  truthy('a key is recognised', googleMaps.looksLikeGoogleKey('AIzaSyB-1234567890abcdefghijklmno'))
+  truthy('a URL is not a key', !googleMaps.looksLikeGoogleKey('https://maps.googleapis.com/?key=abc'))
+  truthy('a quoted paste is not a key', !googleMaps.looksLikeGoogleKey('"AIzaSyB-1234567890abcdefghij"'))
+  truthy('something short is not a key', !googleMaps.looksLikeGoogleKey('AIza'))
+  const jsUrl = googleMaps.mapsJsUrl('KEY123')
+  truthy('the maps js url carries the key, channel and libraries',
+    jsUrl.includes('key=KEY123') && jsUrl.includes('v=beta') && jsUrl.includes('maps3d') && jsUrl.includes('loading=async'),
+    jsUrl)
+
+  googleMaps.setGoogleKey('')
+  truthy('removing the key clears it', !googleMaps.hasGoogleKey())
+  eq('and the chain drops google again', geocode.chainFor('auto'), ['photon', 'census', 'osm'])
+
+  // ------------------------------------------- precision on deals and sites
+  const precDeals = [
+    { ...withCoords[0], lat: 42.3656, lon: -71.086, geoPrecision: 'interpolated', placeId: '' },
+    { ...withCoords[1], lat: 42.3656, lon: -71.086, geoPrecision: 'rooftop', placeId: 'PLACE_C' },
+  ]
+  const precSite = normalize.buildSites(precDeals)[0]
+  eq('a site takes the best precision of its deals', precSite.precision, 'rooftop')
+  eq('a site carries the place id', precSite.placeId, 'PLACE_C')
+  eq('a site of interpolations stays interpolated',
+    normalize.buildSites([precDeals[0]])[0].precision, 'interpolated')
+  eq('coordinates typed into the sheet count as rooftop',
+    normalize.normalizeDeals(
+      { fileName: 'c.csv', sheetName: 'S', sheetNames: ['S'], headers: ['Address', 'Size', 'Rate', 'Latitude', 'Longitude'],
+        rows: [{ Address: '1 A St', Size: '1000', Rate: '$10', Latitude: '42.3656', Longitude: '-71.086' }] },
+      fields.autoMapColumns(['Address', 'Size', 'Rate', 'Latitude', 'Longitude']),
+    )[0].geoPrecision,
+    'rooftop')
+
+  // ------------------------------- resolving a click on the Google 3D engine
+  const clickSites = [
+    { ...precSite, id: 'a', lat: 42.3656, lon: -71.086, placeId: 'PLACE_A' },
+    { ...precSite, id: 'b', lat: 42.3700, lon: -71.0800, placeId: 'PLACE_B' },
+  ]
+  eq('a place id resolves the comp exactly',
+    google3d.siteForClick(clickSites, 'PLACE_B', { lat: 42.3656, lng: -71.086 })?.id, 'b')
+  eq('with no place id the nearest comp answers',
+    google3d.siteForClick(clickSites, '', { lat: 42.36565, lng: -71.0861 })?.id, 'a')
+  eq('an unknown place id falls back to proximity',
+    google3d.siteForClick(clickSites, 'PLACE_UNKNOWN', { lat: 42.36565, lng: -71.0861 })?.id, 'a')
+  eq('a click far from every comp opens nothing',
+    google3d.siteForClick(clickSites, '', { lat: 42.5, lng: -71.5 }), null)
+  eq('a click with no position and no place id opens nothing',
+    google3d.siteForClick(clickSites, '', null), null)
+  eq('the tolerance is respected',
+    google3d.siteForClick(clickSites, '', { lat: 42.3656, lng: -71.086 }, 0.5)?.id, 'a')
 
   window.fetch = realFetch
   geocode.clearGeocodeCache()

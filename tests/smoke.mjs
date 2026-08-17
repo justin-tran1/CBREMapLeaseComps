@@ -360,6 +360,46 @@ if (markerBox) {
 await page.addStyleTag({ content: '.maplibregl-marker{pointer-events:auto !important}' })
 await closePopup(page)
 
+// -------------------------------------------- 6b. the Google settings panel
+// No key is set in this run, so this is the state every user starts in: Google offered, the
+// Google engine refused, and the key-less map fully working.
+await page.locator('.gpanel .maptool').click()
+await page.waitForTimeout(250)
+check('google panel opens', await page.locator('.gsettings').isVisible())
+check(
+  'google reads as not connected',
+  (await page.locator('.gpanel .maptool').innerText()).trim() === 'Google',
+  await page.locator('.gpanel .maptool').innerText(),
+)
+check('the key field is masked', (await page.locator('#google-api-key').getAttribute('type')) === 'password')
+check(
+  'saving is refused with no key',
+  await page.getByRole('button', { name: 'Save key' }).isDisabled(),
+)
+await page.locator('#google-api-key').fill('https://maps.googleapis.com/?key=abc')
+await page.waitForTimeout(200)
+check(
+  'a pasted URL is rejected as a key',
+  (await page.locator('.gsettings').innerText()).includes('does not look like a key'),
+)
+check(
+  'saving is still refused',
+  await page.getByRole('button', { name: 'Save key' }).isDisabled(),
+)
+check(
+  'the google engine is unavailable without a key',
+  await page.locator('.basemap__option', { hasText: 'Photorealistic 3D' }).isDisabled(),
+)
+// The sample sheet carries latitude and longitude, so every location is building-grade.
+check(
+  'the panel reports how precisely the set is located',
+  (await page.locator('.gsettings').innerText()).includes('precise enough to name their building'),
+  (await page.locator('.gsettings').innerText()).replace(/\s+/g, ' ').slice(-140),
+)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+check('escape closes the google panel', (await page.locator('.gsettings').count()) === 0)
+
 // ------------------------------------------------------------- 7. basemaps
 await page.locator('.basemap .maptool').click()
 await page.waitForTimeout(200)
