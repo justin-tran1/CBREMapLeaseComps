@@ -33,9 +33,9 @@ export type Phase = 'upload' | 'mapping' | 'ready'
 export type TabId = 'map' | 'dashboard'
 export type ThemeId = 'light' | 'dark'
 
-const THEME_KEY = 'cbre-lease-mapper.theme'
-const BASEMAP_KEY = 'cbre-lease-mapper.basemap'
-const PROVIDER_KEY = 'cbre-lease-mapper.geocoder'
+const THEME_KEY = 'cbre-hcls-mapper.theme'
+const BASEMAP_KEY = 'cbre-hcls-mapper.basemap.v2'
+const PROVIDER_KEY = 'cbre-hcls-mapper.geocoder'
 
 function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -124,7 +124,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState<TabId>('map')
   const [theme, setThemeState] = useState<ThemeId>(() => readStored(THEME_KEY, ['light', 'dark'] as const, 'light'))
   const [basemap, setBasemapState] = useState<BasemapId>(() =>
-    readStored(BASEMAP_KEY, ['cbre-light', 'streets', 'satellite', 'hybrid', 'topo', 'dark', 'gray'] as const, 'cbre-light'),
+    readStored(BASEMAP_KEY, ['aerial', 'hybrid', 'cbre-light', 'streets', 'gray', 'topo', 'dark'] as const, 'aerial'),
   )
 
   const [file, setFile] = useState<File | null>(null)

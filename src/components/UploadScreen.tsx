@@ -52,7 +52,7 @@ function downloadTemplate(): void {
   const example = FIELDS.map((f) => TEMPLATE_EXAMPLE[f.key] ?? '')
   const row = (cells: string[]) =>
     cells.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(',')
-  downloadCsv('lease-comp-template.csv', `${row(headers)}\r\n${row(example)}`)
+  downloadCsv('cbre-hcls-lease-comp-template.csv', `${row(headers)}\r\n${row(example)}`)
 }
 
 export function UploadScreen() {
@@ -82,11 +82,12 @@ export function UploadScreen() {
     <div className="upload">
       <div className="upload__inner">
         <div className="upload__hero">
-          <h1>Map a lease comp set</h1>
+          <h1>Map a healthcare and life sciences comp set</h1>
           <p>
-            Upload a spreadsheet of lease comparables. Every address is plotted on a map you can
-            click through deal by deal, and the same rows feed a dashboard with the filters your
-            analysis needs. Files are read in this browser and never uploaded anywhere.
+            Upload a spreadsheet of lease comparables. Every address is plotted on a 3D map you
+            can click through building by building, and the same rows feed a dashboard with the
+            filters your analysis needs. Medical office, lab, GMP manufacturing and outpatient
+            deals all read the same way. Files stay in this browser and never upload anywhere.
           </p>
         </div>
 

@@ -36,6 +36,8 @@ const results = await page.evaluate(async () => {
   const filters = await import('/src/lib/filters.ts')
   const stats = await import('/src/lib/stats.ts')
   const geocode = await import('/src/lib/geocode.ts')
+  const draw = await import('/src/components/mapDraw.ts')
+  const palette = await import('/src/lib/palette.ts')
 
   // ------------------------------------------------------------ toNumber
   eq('toNumber $1,234.56', coerce.toNumber('$1,234.56'), 1234.56)
@@ -132,10 +134,10 @@ const results = await page.evaluate(async () => {
   eq('alt: tenant', alt.lessee, 'TENANT')
 
   // ------------------------------------------------------------ geometry
-  const square = [[0, 0], [0, 10], [10, 10], [10, 0]]
-  truthy('point inside polygon', geometry.pointInPolygon(5, 5, square))
-  truthy('point outside polygon', !geometry.pointInPolygon(15, 5, square))
-  truthy('point outside polygon (negative)', !geometry.pointInPolygon(-1, 5, square))
+  const box = [[0, 0], [0, 10], [10, 10], [10, 0]]
+  truthy('point inside polygon', geometry.pointInPolygon(5, 5, box))
+  truthy('point outside polygon', !geometry.pointInPolygon(15, 5, box))
+  truthy('point outside polygon (negative)', !geometry.pointInPolygon(-1, 5, box))
   const concave = [[0, 0], [0, 10], [10, 10], [10, 0], [6, 0], [6, 8], [4, 8], [4, 0]]
   truthy('concave: inside the top arm', geometry.pointInPolygon(9, 5, concave))
   truthy('concave: inside the bottom arm', geometry.pointInPolygon(1, 5, concave))
@@ -148,6 +150,60 @@ const results = await page.evaluate(async () => {
   truthy('circle excludes far point', !geometry.shapeContains(circle, 34.2, -118.25))
   const dist = geometry.haversineMeters(34.05, -118.25, 34.06, -118.25)
   truthy('haversine ~1.11km per 0.01 deg lat', Math.abs(dist - 1112) < 15, `${dist}`)
+
+  // ------------------------------------------- building footprints (3D map)
+  const square = (lng, lat, d) => ({
+    type: 'Polygon',
+    coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]],
+  })
+  const footprint = square(-71.086, 42.3656, 0.0005)
+  truthy('comp inside a footprint', geometry.pointInGeometry(-71.086, 42.3656, footprint))
+  truthy('comp just outside a footprint', !geometry.pointInGeometry(-71.0875, 42.3656, footprint))
+  truthy('a multipolygon is searched in full', geometry.pointInGeometry(-71.05, 42.3, {
+    type: 'MultiPolygon',
+    coordinates: [square(-71.086, 42.3656, 0.0005).coordinates, square(-71.05, 42.3, 0.001).coordinates],
+  }))
+  const donut = {
+    type: 'Polygon',
+    coordinates: [
+      [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]],
+      [[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4], [-0.4, -0.4]],
+    ],
+  }
+  truthy('a courtyard hole reads as outside', !geometry.pointInGeometry(0, 0, donut))
+  truthy('the ring around a hole reads as inside', geometry.pointInGeometry(0.7, 0.7, donut))
+  eq('footprintKey is stable', geometry.footprintKey(footprint), geometry.footprintKey(square(-71.086, 42.3656, 0.0005)))
+  truthy('footprintKey separates buildings', geometry.footprintKey(footprint) !== geometry.footprintKey(square(-71.05, 42.3, 0.0005)))
+  eq('footprintKey ignores non-polygons', geometry.footprintKey({ type: 'Point', coordinates: [0, 0] }), '')
+
+  // ------------------------------------------------------- draw geometry
+  const ring = draw.circleRing(42.3656, -71.086, 500)
+  truthy('circle ring closes on itself', ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1])
+  truthy('circle ring is roughly 500 m across', (() => {
+    const far = Math.max(...ring.map(([lng, lat]) => geometry.haversineMeters(42.3656, -71.086, lat, lng)))
+    return Math.abs(far - 500) < 20
+  })(), 'radius drift')
+  const rectFeature = draw.shapeToFeature({ kind: 'rectangle', bounds: [[42.0, -71.2], [42.4, -70.9]] })
+  eq('rectangle becomes a closed ring', rectFeature.geometry.coordinates[0].length, 5)
+  truthy('rectangle ring is in lng/lat order', rectFeature.geometry.coordinates[0][0][0] === -71.2)
+  const polyFeature = draw.shapeToFeature({ kind: 'polygon', points: [[1, 2], [3, 4], [5, 6]] })
+  eq('polygon flips to lng/lat and closes', polyFeature.geometry.coordinates[0], [[2, 1], [4, 3], [6, 5], [2, 1]])
+  truthy('drawn shape round-trips through the containment test',
+    geometry.shapeContains({ kind: 'rectangle', bounds: [[42.0, -71.2], [42.4, -70.9]] }, 42.2, -71.0))
+
+  // -------------------------------------------------------- brand palette
+  const brandHexes = new Set(Object.values(palette.CBRE))
+  truthy('every light categorical slot is a brand colour',
+    palette.CATEGORICAL_LIGHT.every((c) => brandHexes.has(c)), palette.CATEGORICAL_LIGHT.join(','))
+  truthy('every dark categorical slot is a brand colour',
+    palette.CATEGORICAL_DARK.every((c) => brandHexes.has(c)), palette.CATEGORICAL_DARK.join(','))
+  eq('slot count matches across themes', palette.CATEGORICAL_LIGHT.length, palette.CATEGORICAL_DARK.length)
+  eq('single-series light is CBRE green', palette.SERIES_LIGHT, '#003f2d')
+  eq('single-series dark is accent green', palette.SERIES_DARK, '#17e88f')
+  eq('slot 0 resolves', palette.colorForIndex(0, false), palette.CATEGORICAL_LIGHT[0])
+  eq('past the last slot falls back to the neutral', palette.colorForIndex(99, false), palette.OTHER_COLOR_LIGHT)
+  truthy('marker ramp darkens with deal count',
+    palette.markerColor(1) !== palette.markerColor(4) && palette.markerColor(4) !== palette.markerColor(10))
 
   // ------------------------------------------------------------- formats
   eq('fmtRent annual', format.fmtRent(28.5, 'Annual $/SF'), '$28.50 /SF/Yr')

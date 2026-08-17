@@ -36,7 +36,7 @@ export const GEOCODE_PROVIDERS: ProviderInfo[] = [
   { id: 'osm', label: 'Nominatim (OpenStreetMap)', description: 'Worldwide. Limited to one lookup per second.' },
 ]
 
-const CACHE_KEY = 'cbre-lease-mapper.geocache.v2'
+const CACHE_KEY = 'cbre-hcls-mapper.geocache.v2'
 const CACHE_LIMIT = 25_000
 const REQUEST_TIMEOUT_MS = 20_000
 

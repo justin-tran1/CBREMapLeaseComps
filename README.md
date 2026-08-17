@@ -1,8 +1,9 @@
-# Lease Comp Mapper
+# CBRE Healthcare & Life Sciences: Lease Comp Mapper
 
-Upload a spreadsheet of lease comparables. Every address lands on a map you can click
-through deal by deal, and the same rows drive a dashboard with the filters an analysis
-needs. The tool runs entirely in the browser. No file, address, or deal term leaves the
+Upload a spreadsheet of lease comparables. Every address lands on a 3D map you can click
+through building by building, and the same rows drive a dashboard with the filters an
+analysis needs. Medical office, lab, GMP manufacturing and outpatient deals all read the
+same way. The tool runs entirely in the browser. No file, address, or deal term leaves the
 machine it runs on.
 
 ## Running it
@@ -31,8 +32,9 @@ Drop in a `.xlsx`, `.xlsm`, `.xlsb`, `.xls`, `.csv`, or `.tsv` file. The tool fi
 header row on its own, so an export with a title block or a blank spacer above the headers
 still reads correctly. Workbooks with several sheets get a sheet picker.
 
-The **Load sample data** button opens a 50-row demo set across nine markets, useful for a
-first look before pointing the tool at a real book.
+The **Load sample data** button opens a 74-row demo set across the major healthcare and
+life sciences markets: Cambridge, South San Francisco, San Diego, the Texas Medical Center,
+Research Triangle Park, University City and others. Real buildings, invented deal terms.
 
 ### 2. Check the column mapping
 
@@ -74,9 +76,17 @@ and `Longitude` columns to the sheet and the tool skips geocoding entirely.
 
 ## The map
 
-Click a pin to open the deal. Pins carry a count when an address holds several deals, and
-clicking one of those opens a picker first. Choose a deal to see its terms, then step
-between deals with the arrows in the footer or return to the list.
+The map opens tilted over aerial imagery with buildings extruded in 3D. **Buildings that
+hold a deal are picked out in CBRE green; click one and its deals open.** Everything else
+stays neutral grey. Buildings appear once you pass street level, which is where the
+footprints exist in the underlying data.
+
+Pins work the same way and stay visible at every zoom. Both carry a count when an address
+holds several deals, and opening one of those shows a picker first. Choose a deal to see
+its terms, then step between deals with the arrows in the footer or return to the list.
+
+Drag with the right mouse button to rotate and tilt, or use the compass control. The **3D
+buildings** button drops the map flat and back again.
 
 Each deal shows, in this order:
 
@@ -84,8 +94,9 @@ Lease date, term length, execution date, lease type, property subtype, rate type
 leased, floor, suite, base rent, OpEx, escalation, free rent, TI allowance. Lessor, lessee,
 associated brokers, and any notes follow underneath.
 
-**Basemaps.** Seven options in the layer switcher: light, streets, light gray canvas,
-satellite, satellite with labels, topographic, and dark.
+**Basemaps.** Seven options in the layer switcher: aerial (the default), aerial with
+labels, light, streets, light gray canvas, topographic, and dark. Buildings extrude over
+all of them.
 
 **Search.** The box at the top left jumps to a property by name, address, tenant, lessor,
 suite, or submarket. Arrow keys move through the results; Enter opens the deal. Search
@@ -160,33 +171,47 @@ expiration are present, the term is derived from the two dates.
 
 **Deals at one address.** Rows are grouped by street address with the suite, floor, and
 unit stripped, then any groups that resolve to the same coordinates merge. One building
-gets one pin.
+gets one pin, and clicking either the pin or the building reaches the same deals.
 
 ## Verifying a change
 
 ```bash
 npm run typecheck
 
-npm i -D playwright              # once; not a project dependency
+npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 166 assertions
+npm run test:units               # terminal 2, 188 assertions
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 79 end-to-end checks
+npm run test:e2e                 # terminal 2, 89 end-to-end checks
+
+npm run build:standalone
+npm run test:standalone          # 9 checks against the single file, opened from disk
 ```
 
-`tests/units.mjs` covers value coercion, header matching, geometry, formatting, filtering,
-aggregation, and the geocoding response parsers with stubbed network calls.
-`tests/smoke.mjs` drives the real interface from upload through the dashboard. Neither test
-contacts an external service.
+`tests/units.mjs` covers value coercion, header matching, geometry, building-footprint
+containment, draw geometry, the brand palette, formatting, filtering, aggregation, and the
+geocoding response parsers with stubbed network calls. `tests/smoke.mjs` drives the real
+interface from upload through the dashboard, including a click on a 3D building, using a
+synthetic vector tile generated in the test. `tests/standalone.mjs` opens the single-file
+build straight off disk, which is where the browser rules on workers and origins bite
+hardest. No test contacts an external service.
 
 ## How it is built
 
-React 19, TypeScript, and Vite. Leaflet draws the map, with the drawing tools written
-against Leaflet directly rather than pulled in as a plugin, so Escape always cancels and
+React 19, TypeScript, and Vite. MapLibre GL draws the map, with the drawing tools written
+against MapLibre directly rather than pulled in as a plugin, so Escape always cancels and
 the map's own gestures suspend only while a shape is in flight. Recharts draws the
 dashboard. SheetJS reads the workbooks.
+
+Building footprints and heights come from OpenStreetMap through OpenFreeMap, and aerial
+imagery from Esri. Both are free and need no key. If a network blocks the building tiles
+the map says so and carries on with pins, filters and the dashboard intact.
+
+Matching a comp to its building runs per comp rather than per building: each visible deal
+is projected to the screen and the footprint under that one point is queried, so the work
+scales with the deals on screen instead of the buildings in view.
 
 ```
 src/
@@ -196,9 +221,22 @@ src/
 tests/          unit and end-to-end suites
 ```
 
-Chart colors clear the contrast and color-vision separation gates in both light and dark
-themes. Single-measure charts use one color, because color encodes nothing when every bar
-measures the same thing.
+## Color
+
+Every color is a CBRE 2021 brand value. Chrome uses CBRE Green, Accent Green and Dark
+Green; ink, borders and surfaces come from Dark Grey, Cement and Light Grey.
+
+Chart series use the `cbre_charts` palette. The brand guide says to assign those slots in
+order, and this does, with one deliberate exception: slots 4 and 5 are swapped so accent
+green and wheat never sit side by side. Measured against a color-vision simulation that
+adjacency scores a separation of 1.6, meaning roughly one man in twelve cannot tell two
+neighbouring stacked segments apart. Moving terracotta between them lifts the worst
+adjacent pair to 14.7 and changes no color values.
+
+The brand guide defines no dark-mode chart palette. The dark theme keeps each slot's
+identity and substitutes the brand color from the same family that reads on a dark surface,
+so a series holds its meaning when the theme flips. Single-measure charts use one color,
+because color encodes nothing when every bar measures the same thing.
 
 ## Privacy
 

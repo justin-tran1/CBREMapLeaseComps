@@ -131,3 +131,49 @@ export function shapeLabel(shape: DrawnShape): string {
       return 'Area'
   }
 }
+
+// ------------------------------------------------- GeoJSON building footprints
+
+/** Ray casting over a [lng, lat] ring. Separate from `pointInPolygon`, which takes [lat, lon]. */
+function pointInLngLatRing(lng: number, lat: number, ring: number[][]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [lngI, latI] = ring[i]
+    const [lngJ, latJ] = ring[j]
+    if (latI > lat === latJ > lat) continue
+    const crossingLng = ((lngJ - lngI) * (lat - latI)) / (latJ - latI) + lngI
+    if (lng < crossingLng) inside = !inside
+  }
+  return inside
+}
+
+/** A point is inside a polygon when it sits in the outer ring and in none of the holes. */
+function pointInLngLatPolygon(lng: number, lat: number, rings: number[][][]): boolean {
+  if (rings.length === 0) return false
+  if (!pointInLngLatRing(lng, lat, rings[0])) return false
+  for (let i = 1; i < rings.length; i++) {
+    if (pointInLngLatRing(lng, lat, rings[i])) return false
+  }
+  return true
+}
+
+/** Containment test against a building footprint from the vector tiles. */
+export function pointInGeometry(lng: number, lat: number, geometry: GeoJSON.Geometry): boolean {
+  if (geometry.type === 'Polygon') return pointInLngLatPolygon(lng, lat, geometry.coordinates)
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some((rings) => pointInLngLatPolygon(lng, lat, rings))
+  }
+  return false
+}
+
+/** Stable key for a footprint, so two comps in one tower yield one highlighted building. */
+export function footprintKey(geometry: GeoJSON.Geometry): string {
+  const first =
+    geometry.type === 'Polygon'
+      ? geometry.coordinates[0]?.[0]
+      : geometry.type === 'MultiPolygon'
+        ? geometry.coordinates[0]?.[0]?.[0]
+        : null
+  if (!first) return ''
+  return `${first[0].toFixed(6)},${first[1].toFixed(6)}`
+}

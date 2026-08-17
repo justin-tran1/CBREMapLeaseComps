@@ -176,7 +176,7 @@ export function DataTable() {
           <button
             type="button"
             className="btn btn--sm"
-            onClick={() => downloadCsv(timestampedName('lease-comps-filtered'), dealsToCsv(sorted))}
+            onClick={() => downloadCsv(timestampedName('cbre-hcls-lease-comps'), dealsToCsv(sorted))}
             disabled={sorted.length === 0}
           >
             <IconDownload size={13} />

@@ -1,16 +1,24 @@
 /* =========================================================================
-   Lease Comp Mapper — design tokens and shell
-   Light is the default; dark is separately stepped, not an inverted flip.
+   CBRE Healthcare & Life Sciences: Lease Comp Mapper
+   Design tokens from the CBRE 2021 brand palette. Light is the default; the
+   dark theme is separately stepped from the same brand colours, not inverted.
    ========================================================================= */
 
 :root {
   color-scheme: light;
 
-  /* CBRE brand */
+  /* Brand, primary */
   --brand-green: #003f2d;
   --brand-green-hover: #00543c;
   --brand-accent: #17e88f;
   --brand-dark: #012a2d;
+
+  /* Brand, secondary */
+  --celadon: #80bbad;
+  --celadon-tint: #c0d4cb;
+  --sage: #538184;
+  --wheat: #dbd99a;
+  --cement: #7f8480;
 
   /* Surfaces */
   --page: #f1f4f3;
@@ -24,37 +32,37 @@
   --header-ink-muted: rgba(255, 255, 255, 0.72);
 
   /* Ink */
-  --ink: #0d1a16;
+  --ink: #012a2d;
   --ink-secondary: #435254;
-  --ink-muted: #6d7a76;
+  --ink-muted: #7f8480;
   --ink-inverse: #ffffff;
 
   /* Lines */
-  --border: #d7dedb;
-  --border-strong: #b9c4c0;
-  --border-hairline: rgba(13, 26, 22, 0.09);
-  --grid: #e6ebe9;
+  --border: #cad1d3;
+  --border-strong: #a9b4b6;
+  --border-hairline: rgba(1, 42, 45, 0.1);
+  --grid: #e4e9e8;
 
-  /* Feedback */
-  --good: #0ca30c;
+  /* Feedback, from the brand status colours */
+  --good: #28573c;
   --good-bg: #e6f4ec;
   --good-ink: #28573c;
-  --warn: #b06a00;
-  --warn-bg: #fdf3e0;
-  --warn-ink: #7a4a00;
-  --danger: #b3261e;
+  --warn: #a4700f;
+  --warn-bg: #efecd2;
+  --warn-ink: #6f4c05;
+  --danger: #ad2a2a;
   --danger-bg: #fbeeee;
-  --danger-ink: #8f2119;
+  --danger-ink: #a03530;
 
   /* Data marks */
-  --series: #0d6b4f;
-  --series-soft: rgba(13, 107, 79, 0.14);
+  --series: #003f2d;
+  --series-soft: rgba(0, 63, 45, 0.12);
   --chart-surface: #ffffff;
 
-  --focus: #0a7cff;
-  --shadow-sm: 0 1px 2px rgba(13, 26, 22, 0.08), 0 1px 3px rgba(13, 26, 22, 0.06);
-  --shadow-md: 0 4px 12px rgba(13, 26, 22, 0.1), 0 1px 3px rgba(13, 26, 22, 0.06);
-  --shadow-lg: 0 12px 32px rgba(13, 26, 22, 0.16), 0 2px 8px rgba(13, 26, 22, 0.08);
+  --focus: #3e7ca6;
+  --shadow-sm: 0 1px 2px rgba(1, 42, 45, 0.08), 0 1px 3px rgba(1, 42, 45, 0.06);
+  --shadow-md: 0 4px 12px rgba(1, 42, 45, 0.1), 0 1px 3px rgba(1, 42, 45, 0.06);
+  --shadow-lg: 0 12px 32px rgba(1, 42, 45, 0.16), 0 2px 8px rgba(1, 42, 45, 0.08);
 
   --radius-sm: 4px;
   --radius: 8px;
@@ -74,41 +82,47 @@
   --brand-accent: #17e88f;
   --brand-dark: #04191a;
 
-  --page: #0b1512;
-  --surface: #132420;
-  --surface-raised: #182c27;
-  --surface-sunken: #0e1c18;
-  --surface-hover: #1c332d;
-  --surface-active: #234037;
-  --header: #04191a;
+  --celadon: #80bbad;
+  --celadon-tint: #c0d4cb;
+  --sage: #538184;
+  --wheat: #dbd99a;
+  --cement: #cbcdcb;
+
+  --page: #04191a;
+  --surface: #0f2b23;
+  --surface-raised: #143529;
+  --surface-sunken: #0a2119;
+  --surface-hover: #17392c;
+  --surface-active: #1e4736;
+  --header: #012a2d;
   --header-ink: #ffffff;
   --header-ink-muted: rgba(255, 255, 255, 0.68);
 
-  --ink: #f2f6f4;
-  --ink-secondary: #b9c7c1;
-  --ink-muted: #8b9a94;
-  --ink-inverse: #04191a;
+  --ink: #ffffff;
+  --ink-secondary: #c0d4cb;
+  --ink-muted: #96b3b6;
+  --ink-inverse: #012a2d;
 
-  --border: #27403a;
-  --border-strong: #375349;
-  --border-hairline: rgba(255, 255, 255, 0.1);
-  --grid: #223b34;
+  --border: #1f4438;
+  --border-strong: #35604f;
+  --border-hairline: rgba(255, 255, 255, 0.11);
+  --grid: #1b3b30;
 
-  --good: #2ecb6a;
-  --good-bg: #10321f;
+  --good: #17e88f;
+  --good-bg: #0d3324;
   --good-ink: #8fe0ac;
-  --warn: #e0a33a;
-  --warn-bg: #33260f;
-  --warn-ink: #f0c982;
-  --danger: #f08a84;
+  --warn: #dbd99a;
+  --warn-bg: #33300f;
+  --warn-ink: #efecd2;
+  --danger: #d2785a;
   --danger-bg: #3a1a18;
-  --danger-ink: #f3aca7;
+  --danger-ink: #e8a894;
 
-  --series: #2fbc8d;
-  --series-soft: rgba(47, 188, 141, 0.18);
-  --chart-surface: #132420;
+  --series: #17e88f;
+  --series-soft: rgba(23, 232, 143, 0.16);
+  --chart-surface: #0f2b23;
 
-  --focus: #6bb2ff;
+  --focus: #80bbad;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
@@ -1255,46 +1269,103 @@ h1, h2, h3, h4 {
 
 /* --------------------------------------------------------------- popup UI */
 
-.leaflet-popup-content-wrapper {
+.maplibregl-popup-content {
   border-radius: var(--radius) !important;
   padding: 0 !important;
   background: var(--surface) !important;
   color: var(--ink) !important;
   box-shadow: var(--shadow-lg) !important;
   border: 1px solid var(--border);
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.leaflet-popup-content {
-  margin: 0 !important;
-  width: 340px !important;
-  max-width: min(340px, 84vw) !important;
-  line-height: 1.5 !important;
-  font-size: 13px !important;
+.maplibregl-popup-tip {
+  border-top-color: var(--surface) !important;
+  border-bottom-color: var(--surface) !important;
+  border-left-color: var(--surface) !important;
+  border-right-color: var(--surface) !important;
 }
 
-.leaflet-popup-tip {
-  background: var(--surface) !important;
-  border: 1px solid var(--border);
-  box-shadow: none !important;
-}
-
-.leaflet-popup-close-button {
+.maplibregl-popup-close-button {
   color: var(--ink-muted) !important;
-  width: 26px !important;
-  height: 26px !important;
+  width: 28px !important;
+  height: 28px !important;
   font-size: 20px !important;
-  padding: 2px 0 0 !important;
+  background: transparent !important;
+  border-radius: var(--radius-sm);
+  z-index: 3;
 }
 
-.leaflet-popup-close-button:hover {
+.maplibregl-popup-close-button:hover {
   color: var(--ink) !important;
-  background: transparent !important;
+  background: var(--surface-hover) !important;
 }
+
+.maplibregl-marker {
+  cursor: pointer;
+}
+
+/* Map controls */
+.maplibregl-ctrl-group {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-md) !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  background: var(--surface) !important;
+  width: 30px !important;
+  height: 30px !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--border) !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--surface-hover) !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: var(--ctrl-icon-filter, none);
+}
+
+:root[data-theme='dark'] {
+  --ctrl-icon-filter: invert(1) hue-rotate(180deg);
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.86) !important;
+  font-size: 10px !important;
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-attrib {
+  background: rgba(4, 25, 26, 0.86) !important;
+  color: var(--ink-muted) !important;
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-attrib a {
+  color: var(--ink-secondary) !important;
+}
+
+/* MapLibre's zoom and compass stack shares the top-left with the search row. */
+.maplibregl-ctrl-top-left {
+  margin-top: 46px;
+}
+
+/* ----------------------------------------------------------- deal popout */
 
 .pop {
   display: flex;
   flex-direction: column;
-  max-height: min(560px, 74vh);
+  width: 340px;
+  max-width: 84vw;
+  max-height: min(560px, 66vh);
+  font-size: 13px;
 }
 
 .pop__header {
@@ -1489,34 +1560,9 @@ h1, h2, h3, h4 {
   cursor: not-allowed;
 }
 
-/* leaflet chrome in dark mode */
-:root[data-theme='dark'] .leaflet-control-zoom a {
-  background: var(--surface);
-  color: var(--ink);
-  border-color: var(--border);
-}
-
-:root[data-theme='dark'] .leaflet-control-zoom a:hover {
-  background: var(--surface-hover);
-}
-
-:root[data-theme='dark'] .leaflet-control-attribution {
-  background: rgba(19, 36, 32, 0.85) !important;
-  color: var(--ink-muted) !important;
-}
-
-:root[data-theme='dark'] .leaflet-control-attribution a {
-  color: var(--ink-secondary) !important;
-}
-
-.leaflet-container {
-  font-family: var(--font) !important;
-  background: var(--surface-sunken);
-}
-
-.leaflet-container.drawing,
-.leaflet-container.drawing .leaflet-interactive {
-  cursor: crosshair !important;
+.maplibregl-canvas:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 /* --------------------------------------------------------------- dashboard */
@@ -2000,7 +2046,7 @@ h1, h2, h3, h4 {
   }
 }
 
-/* ------------------------------------------------------ leaflet marker pins */
+/* -------------------------------------------------------- map marker pins */
 
 .pin-wrap {
   background: none;
@@ -2008,25 +2054,9 @@ h1, h2, h3, h4 {
 }
 
 /* While a shape is being traced, pins must not swallow the clicks. */
-.leaflet-container.drawing .leaflet-marker-pane,
-.leaflet-container.drawing .leaflet-popup-pane {
+body.is-drawing .maplibregl-marker,
+body.is-drawing .maplibregl-popup {
   pointer-events: none;
-}
-
-.leaflet-popup {
-  margin-bottom: 12px;
-}
-
-/* Leaflet's zoom control shares the top-left corner with the search row; drop it below. */
-.leaflet-top.leaflet-left {
-  margin-top: 46px;
-}
-
-.leaflet-control-zoom {
-  border-radius: var(--radius) !important;
-  overflow: hidden;
-  box-shadow: var(--shadow-md) !important;
-  border: 1px solid var(--border) !important;
 }
 
 /* No accidental text selection while a filter shape is being traced. */
@@ -2036,9 +2066,16 @@ body.is-drawing * {
   user-select: none;
 }
 
-/* Leaflet makes its container focusable for keyboard panning. Draw the ring inside so it
-   does not get clipped against the filter rail and the bar above. */
-.leaflet-container:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
+.topbar__title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.topbar__subtitle {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-accent);
 }

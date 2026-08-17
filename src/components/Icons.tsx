@@ -212,3 +212,10 @@ export const CbreLogo = ({ size = 22 }: { size?: number }) => (
     />
   </svg>
 )
+
+export const IconCube = ({ size = 16, className, style }: IconProps) => (
+  <svg {...base(size)} className={className} style={style}>
+    <path d="m12 2.8 8 4.4v9.6l-8 4.4-8-4.4V7.2z" />
+    <path d="m4 7.2 8 4.4 8-4.4M12 11.6V21.2" />
+  </svg>
+)

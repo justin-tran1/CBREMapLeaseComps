@@ -1,163 +1,190 @@
-import L from 'leaflet'
+import type { GeoJSONSource, LngLat, Map as MapLibreMap, MapMouseEvent } from 'maplibre-gl'
+import { SOURCE } from '../lib/basemaps'
 import type { DrawnShape } from '../types'
 
 export type DrawMode = 'polygon' | 'rectangle' | 'circle'
 
-const STROKE_LIGHT = '#003f2d'
-const STROKE_DARK = '#17e88f'
 const CLOSE_THRESHOLD_PX = 14
+const CIRCLE_STEPS = 64
 
 export interface DrawOptions {
-  map: L.Map
+  map: MapLibreMap
   mode: DrawMode
-  dark: boolean
   onComplete: (shape: DrawnShape) => void
   onCancel: () => void
   /** Fires as the shape changes, so the caller can show a live measurement. */
   onPreview?: (shape: DrawnShape | null) => void
 }
 
+type Ring = [number, number][]
+
+/** A circle on the ground, as a polygon ring in [lng, lat] order. */
+export function circleRing(centerLat: number, centerLng: number, radiusMeters: number): Ring {
+  const ring: Ring = []
+  const latRadius = (radiusMeters / 6_371_008.8) * (180 / Math.PI)
+  const lngRadius = latRadius / Math.max(0.01, Math.cos((centerLat * Math.PI) / 180))
+
+  for (let i = 0; i <= CIRCLE_STEPS; i++) {
+    const angle = (i / CIRCLE_STEPS) * Math.PI * 2
+    ring.push([centerLng + lngRadius * Math.cos(angle), centerLat + latRadius * Math.sin(angle)])
+  }
+  return ring
+}
+
+/** Turn a committed filter shape into GeoJSON for the map to draw. */
+export function shapeToFeature(shape: DrawnShape): GeoJSON.Feature {
+  let ring: Ring
+
+  if (shape.kind === 'polygon') {
+    ring = shape.points.map(([lat, lng]) => [lng, lat] as [number, number])
+    if (ring.length > 0) ring.push(ring[0])
+  } else if (shape.kind === 'rectangle') {
+    const [[south, west], [north, east]] = shape.bounds
+    ring = [
+      [west, south],
+      [east, south],
+      [east, north],
+      [west, north],
+      [west, south],
+    ]
+  } else {
+    ring = circleRing(shape.center[0], shape.center[1], shape.radiusMeters)
+  }
+
+  return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
+}
+
+function emptyCollection(): GeoJSON.FeatureCollection {
+  return { type: 'FeatureCollection', features: [] }
+}
+
 /**
  * Cursor-driven drawing for the geographic filter.
  *
- * Written directly against Leaflet rather than pulled in as a plugin so the interaction
- * details stay under our control: Escape always cancels, Backspace removes the last
- * vertex, the first vertex is a real click target for closing the ring, and the map's own
- * gestures are suspended only while a shape is in flight.
+ * Written directly against MapLibre rather than pulled in as a plugin so the interaction
+ * details stay under our control: Escape always cancels, Backspace removes the last vertex,
+ * the first vertex is a real click target for closing the ring, and the map's own gestures
+ * are suspended only while a shape is in flight.
  */
 export class DrawController {
-  private readonly map: L.Map
+  private readonly map: MapLibreMap
   private readonly mode: DrawMode
-  private readonly dark: boolean
-  private readonly stroke: string
-  private readonly layer: L.LayerGroup
   private readonly onComplete: (shape: DrawnShape) => void
   private readonly onCancel: () => void
   private readonly onPreview?: (shape: DrawnShape | null) => void
 
-  private points: L.LatLng[] = []
-  private vertexMarkers: L.CircleMarker[] = []
-  private guide: L.Polyline | null = null
-  private preview: L.Polygon | L.Rectangle | L.Circle | null = null
-  private dragStart: L.LatLng | null = null
-  private dragCurrent: L.LatLng | null = null
-  private draggingWasEnabled = false
+  private points: LngLat[] = []
+  private dragStart: LngLat | null = null
+  private dragCurrent: LngLat | null = null
+  private previousCursor = ''
   private destroyed = false
 
   constructor(options: DrawOptions) {
     this.map = options.map
     this.mode = options.mode
-    this.dark = options.dark
-    this.stroke = options.dark ? STROKE_DARK : STROKE_LIGHT
     this.onComplete = options.onComplete
     this.onCancel = options.onCancel
     this.onPreview = options.onPreview
 
-    this.layer = L.layerGroup().addTo(this.map)
-    this.map.getContainer().classList.add('drawing')
-    // Leaflet suppresses text selection inside its own drag handler, which never runs while
-    // a shape is being drawn, so suppress it here instead.
+    const canvas = this.map.getCanvas()
+    this.previousCursor = canvas.style.cursor
+    canvas.style.cursor = 'crosshair'
     document.body.classList.add('is-drawing')
+
     this.map.doubleClickZoom.disable()
-    this.map.boxZoom.disable()
 
     if (this.mode === 'polygon') {
       this.map.on('click', this.onPolygonClick)
       this.map.on('mousemove', this.onPolygonMove)
       this.map.on('dblclick', this.onPolygonDblClick)
     } else {
-      this.draggingWasEnabled = this.map.dragging.enabled()
-      this.map.dragging.disable()
+      this.map.dragPan.disable()
       this.map.on('mousedown', this.onDragStart)
       this.map.on('mousemove', this.onDragMove)
       this.map.on('mouseup', this.onDragEnd)
-      // A release outside the map still has to finish the shape.
+      // A release outside the canvas still has to finish the shape.
       document.addEventListener('mouseup', this.onDocumentMouseUp)
     }
 
     document.addEventListener('keydown', this.onKeyDown)
   }
 
-  private pathStyle(dashed: boolean): L.PathOptions {
-    return {
-      color: this.stroke,
-      weight: 2,
-      opacity: 0.95,
-      dashArray: dashed ? '6 5' : undefined,
-      fillColor: this.stroke,
-      fillOpacity: this.dark ? 0.14 : 0.08,
-      interactive: false,
-    }
+  private setPreviewData(features: GeoJSON.Feature[]): void {
+    const source = this.map.getSource(SOURCE.draw) as GeoJSONSource | undefined
+    source?.setData({ type: 'FeatureCollection', features })
+  }
+
+  private clearPreviewData(): void {
+    const source = this.map.getSource(SOURCE.draw) as GeoJSONSource | undefined
+    source?.setData(emptyCollection())
   }
 
   // ---------------------------------------------------------------- polygon
 
-  private onPolygonClick = (event: L.LeafletMouseEvent): void => {
+  private onPolygonClick = (event: MapMouseEvent): void => {
     if (this.destroyed) return
 
     // Clicking the first vertex again closes the ring.
     if (this.points.length >= 3) {
-      const first = this.map.latLngToContainerPoint(this.points[0])
-      if (first.distanceTo(event.containerPoint) <= CLOSE_THRESHOLD_PX) {
+      const first = this.map.project(this.points[0])
+      if (Math.hypot(first.x - event.point.x, first.y - event.point.y) <= CLOSE_THRESHOLD_PX) {
         this.finishPolygon()
         return
       }
     }
 
-    this.points.push(event.latlng)
-    this.addVertexMarker(event.latlng, this.points.length === 1)
-    this.redrawPolygon(event.latlng)
+    this.points.push(event.lngLat)
+    this.redrawPolygon(event.lngLat)
   }
 
-  private onPolygonMove = (event: L.LeafletMouseEvent): void => {
+  private onPolygonMove = (event: MapMouseEvent): void => {
     if (this.destroyed || this.points.length === 0) return
-    this.redrawPolygon(event.latlng)
+    this.redrawPolygon(event.lngLat)
   }
 
-  private onPolygonDblClick = (event: L.LeafletMouseEvent): void => {
+  private onPolygonDblClick = (event: MapMouseEvent): void => {
     if (this.destroyed) return
-    L.DomEvent.stop(event)
+    event.preventDefault()
     this.finishPolygon()
   }
 
-  private addVertexMarker(latlng: L.LatLng, isFirst: boolean): void {
-    const marker = L.circleMarker(latlng, {
-      radius: isFirst ? 6 : 4,
-      color: this.stroke,
-      weight: 2,
-      fillColor: isFirst ? this.stroke : '#ffffff',
-      fillOpacity: 1,
-      interactive: false,
-    }).addTo(this.layer)
-    this.vertexMarkers.push(marker)
-  }
+  private redrawPolygon(cursor: LngLat): void {
+    const path: Ring = [...this.points, cursor].map((p) => [p.lng, p.lat] as [number, number])
 
-  private redrawPolygon(cursor: L.LatLng): void {
-    const path = [...this.points, cursor]
-
-    if (this.guide) this.guide.setLatLngs(path)
-    else this.guide = L.polyline(path, this.pathStyle(true)).addTo(this.layer)
+    const features: GeoJSON.Feature[] = [
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: path } },
+      ...this.points.map((p, i) => ({
+        type: 'Feature' as const,
+        properties: { first: i === 0 },
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+      })),
+    ]
 
     if (this.points.length >= 2) {
-      if (this.preview instanceof L.Polygon) this.preview.setLatLngs(path)
-      else {
-        this.clearPreview()
-        this.preview = L.polygon(path, this.pathStyle(false)).addTo(this.layer)
-      }
-      this.onPreview?.({ kind: 'polygon', points: path.map((p) => [p.lat, p.lng] as [number, number]) })
+      features.unshift({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [[...path, path[0]]] },
+      })
+      this.onPreview?.({
+        kind: 'polygon',
+        points: path.map(([lng, lat]) => [lat, lng] as [number, number]),
+      })
     }
+
+    this.setPreviewData(features)
   }
 
   /**
    * A double-click arrives as click, click, dblclick, so the ring usually ends with two
    * vertices in the same spot. Drop the duplicate before committing.
    */
-  private dedupedPoints(): L.LatLng[] {
+  private dedupedPoints(): LngLat[] {
     const points = [...this.points]
     while (points.length >= 2) {
-      const last = this.map.latLngToContainerPoint(points[points.length - 1])
-      const prev = this.map.latLngToContainerPoint(points[points.length - 2])
-      if (last.distanceTo(prev) > 4) break
+      const last = this.map.project(points[points.length - 1])
+      const prev = this.map.project(points[points.length - 2])
+      if (Math.hypot(last.x - prev.x, last.y - prev.y) > 4) break
       points.pop()
     }
     return points
@@ -174,74 +201,70 @@ export class DrawController {
 
   // ------------------------------------------------------ rectangle & circle
 
-  private onDragStart = (event: L.LeafletMouseEvent): void => {
+  private onDragStart = (event: MapMouseEvent): void => {
     if (this.destroyed) return
-    this.dragStart = event.latlng
-    this.dragCurrent = event.latlng
+    this.dragStart = event.lngLat
+    this.dragCurrent = event.lngLat
   }
 
-  private onDragMove = (event: L.LeafletMouseEvent): void => {
+  private onDragMove = (event: MapMouseEvent): void => {
     if (this.destroyed || !this.dragStart) return
-    this.dragCurrent = event.latlng
+    this.dragCurrent = event.lngLat
 
-    if (this.mode === 'rectangle') {
-      const bounds = L.latLngBounds(this.dragStart, event.latlng)
-      if (this.preview instanceof L.Rectangle) this.preview.setBounds(bounds)
-      else {
-        this.clearPreview()
-        this.preview = L.rectangle(bounds, this.pathStyle(false)).addTo(this.layer)
-      }
-      this.onPreview?.(rectangleShape(bounds))
-      return
-    }
-
-    const radius = this.dragStart.distanceTo(event.latlng)
-    if (this.preview instanceof L.Circle) this.preview.setRadius(radius)
-    else {
-      this.clearPreview()
-      this.preview = L.circle(this.dragStart, { ...this.pathStyle(false), radius }).addTo(this.layer)
-    }
-    this.onPreview?.({
-      kind: 'circle',
-      center: [this.dragStart.lat, this.dragStart.lng],
-      radiusMeters: radius,
-    })
+    const shape = this.shapeFrom(this.dragStart, event.lngLat)
+    this.setPreviewData([shapeToFeature(shape)])
+    this.onPreview?.(shape)
   }
 
-  private onDragEnd = (event: L.LeafletMouseEvent): void => {
+  private onDragEnd = (event: MapMouseEvent): void => {
     if (this.destroyed || !this.dragStart) return
-    this.commitDrag(event.latlng)
+    this.commitDrag(event.lngLat)
   }
 
   private onDocumentMouseUp = (): void => {
     if (this.destroyed || !this.dragStart) return
-    // Leaflet's own mouseup fires first when the release lands inside the map.
+    // MapLibre's own mouseup fires first when the release lands inside the canvas.
     this.commitDrag(this.dragCurrent ?? this.dragStart)
   }
 
-  private commitDrag(end: L.LatLng): void {
+  private shapeFrom(start: LngLat, end: LngLat): DrawnShape {
+    if (this.mode === 'rectangle') {
+      return {
+        kind: 'rectangle',
+        bounds: [
+          [Math.min(start.lat, end.lat), Math.min(start.lng, end.lng)],
+          [Math.max(start.lat, end.lat), Math.max(start.lng, end.lng)],
+        ],
+      }
+    }
+    return {
+      kind: 'circle',
+      center: [start.lat, start.lng],
+      radiusMeters: metersBetween(start.lat, start.lng, end.lat, end.lng),
+    }
+  }
+
+  private commitDrag(end: LngLat): void {
     const start = this.dragStart
     if (!start) return
     this.dragStart = null
     this.dragCurrent = null
 
-    if (this.mode === 'rectangle') {
-      const bounds = L.latLngBounds(start, end)
-      // A stray click should not commit a zero-area filter.
-      if (bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest()) {
+    const shape = this.shapeFrom(start, end)
+
+    // A stray click should not commit a filter with no area.
+    if (shape.kind === 'rectangle') {
+      const [[south, west], [north, east]] = shape.bounds
+      if (south === north || west === east) {
         this.onCancel()
         return
       }
-      this.onComplete(rectangleShape(bounds))
-      return
-    }
-
-    const radius = start.distanceTo(end)
-    if (radius < 25) {
+    } else if (shape.kind === 'circle' && shape.radiusMeters < 25) {
       this.onCancel()
       return
     }
-    this.onComplete({ kind: 'circle', center: [start.lat, start.lng], radiusMeters: radius })
+
+    this.onComplete(shape)
   }
 
   // ------------------------------------------------------------------- misc
@@ -281,29 +304,15 @@ export class DrawController {
   private undoLastPoint(): void {
     if (this.points.length === 0) return
     this.points.pop()
-    const marker = this.vertexMarkers.pop()
-    if (marker) this.layer.removeLayer(marker)
 
     if (this.points.length === 0) {
-      this.clearPreview()
-      if (this.guide) {
-        this.layer.removeLayer(this.guide)
-        this.guide = null
-      }
+      this.clearPreviewData()
       this.onPreview?.(null)
       return
     }
     this.redrawPolygon(this.points[this.points.length - 1])
   }
 
-  private clearPreview(): void {
-    if (this.preview) {
-      this.layer.removeLayer(this.preview)
-      this.preview = null
-    }
-  }
-
-  /** Number of vertices placed so far, for the on-screen hint. */
   get vertexCount(): number {
     return this.points.length
   }
@@ -323,41 +332,23 @@ export class DrawController {
       this.map.off('mousemove', this.onDragMove)
       this.map.off('mouseup', this.onDragEnd)
       document.removeEventListener('mouseup', this.onDocumentMouseUp)
-      if (this.draggingWasEnabled) this.map.dragging.enable()
+      this.map.dragPan.enable()
     }
 
-    this.map.getContainer().classList.remove('drawing')
+    this.map.getCanvas().style.cursor = this.previousCursor
     document.body.classList.remove('is-drawing')
     this.map.doubleClickZoom.enable()
-    this.map.boxZoom.enable()
-    this.layer.remove()
+    this.clearPreviewData()
     this.onPreview?.(null)
   }
 }
 
-function rectangleShape(bounds: L.LatLngBounds): DrawnShape {
-  return {
-    kind: 'rectangle',
-    bounds: [
-      [bounds.getSouth(), bounds.getWest()],
-      [bounds.getNorth(), bounds.getEast()],
-    ],
-  }
-}
-
-/** Draw a committed filter shape on a layer group. */
-export function renderShape(shape: DrawnShape, dark: boolean): L.Layer {
-  const stroke = dark ? STROKE_DARK : STROKE_LIGHT
-  const style: L.PathOptions = {
-    color: stroke,
-    weight: 2,
-    opacity: 0.95,
-    fillColor: stroke,
-    fillOpacity: dark ? 0.12 : 0.07,
-    interactive: false,
-  }
-
-  if (shape.kind === 'polygon') return L.polygon(shape.points, style)
-  if (shape.kind === 'rectangle') return L.rectangle(L.latLngBounds(shape.bounds[0], shape.bounds[1]), style)
-  return L.circle(shape.center, { ...style, radius: shape.radiusMeters })
+function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const toRad = Math.PI / 180
+  const dLat = (bLat - aLat) * toRad
+  const dLng = (bLng - aLng) * toRad
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * toRad) * Math.cos(bLat * toRad) * Math.sin(dLng / 2) ** 2
+  return 2 * 6_371_008.8 * Math.asin(Math.min(1, Math.sqrt(h)))
 }

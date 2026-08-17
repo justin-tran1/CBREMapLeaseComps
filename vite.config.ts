@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
   return {
     base: './',
     plugins: [react(), ...(standalone ? [viteSingleFile()] : [])],
+    // MapLibre's worker is inlined as a classic script rather than a module. Browsers
+    // refuse to start a blob module worker from a file:// page, which is exactly how the
+    // standalone build is opened. See src/lib/maplibreWorker.ts.
+    worker: { format: 'iife' },
     build: {
       outDir: standalone ? 'standalone' : 'dist',
       emptyOutDir: true,

@@ -94,7 +94,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
       <div className="dash__inner">
         <div className="dash__head">
           <div>
-            <h1 className="dash__title">Lease comp dashboard</h1>
+            <h1 className="dash__title">Healthcare &amp; Life Sciences lease comps</h1>
             <div className="dash__sub">
               {filtered.length.toLocaleString('en-US')} of {deals.length.toLocaleString('en-US')} deals ·{' '}
               {kpis.dateRangeLabel}

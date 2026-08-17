@@ -7,14 +7,17 @@ export function TopBar() {
 
   const exportVisible = () => {
     if (filtered.length === 0) return
-    downloadCsv(timestampedName('lease-comps-filtered'), dealsToCsv(filtered))
+    downloadCsv(timestampedName('cbre-hcls-lease-comps'), dealsToCsv(filtered))
   }
 
   return (
     <header className="topbar">
       <div className="topbar__brand">
         <CbreLogo />
-        <span className="topbar__title">Lease Comp Mapper</span>
+        <span className="topbar__title">
+          CBRE Healthcare &amp; Life Sciences
+          <span className="topbar__subtitle">Lease Comp Mapper</span>
+        </span>
       </div>
 
       {phase === 'ready' && (

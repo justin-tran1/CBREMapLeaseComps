@@ -160,13 +160,13 @@ export interface Site {
 }
 
 export type BasemapId =
+  | 'aerial'
+  | 'hybrid'
   | 'cbre-light'
   | 'streets'
-  | 'satellite'
-  | 'hybrid'
+  | 'gray'
   | 'topo'
   | 'dark'
-  | 'gray'
 
 export interface NumericRange {
   min: number | null
