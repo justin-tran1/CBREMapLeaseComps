@@ -271,18 +271,78 @@ const results = await page.evaluate(async () => {
 
   const pick = (candidates) => geometry.pickFootprintForPoint(candidates, -71.086, 42.3656, 40_000)
   eq('the nested building beats the campus polygon around it',
-    pick([{ id: 'campus', geometry: campusFootprint }, { id: 'building', geometry: smallFootprint }])?.id,
+    pick([{ id: 'campus', geometry: campusFootprint }, { id: 'building', geometry: smallFootprint }])?.candidate.id,
     'building')
   eq('the smallest containing footprint wins whatever the order',
-    pick([{ id: 'small', geometry: smallFootprint }, { id: 'block', geometry: blockFootprint }])?.id, 'small')
+    pick([{ id: 'small', geometry: smallFootprint }, { id: 'block', geometry: blockFootprint }])?.candidate.id, 'small')
   eq('a footprint that does not contain the comp is refused',
     pick([{ id: 'neighbour', geometry: neighbourFootprint }]), null)
   eq('a campus-sized polygon is refused rather than highlighted',
     pick([{ id: 'campus', geometry: campusFootprint }]), null)
   eq('the chosen candidate comes back intact',
-    pick([{ id: 'building', geometry: smallFootprint, properties: { render_height: 40 } }])?.properties.render_height,
+    pick([{ id: 'building', geometry: smallFootprint, properties: { render_height: 40 } }])?.candidate.properties.render_height,
     40)
   eq('nothing to choose from yields nothing', pick([]), null)
+
+  // A tile generator unions neighbouring buildings into one feature. Only the part the comp
+  // stands in may be highlighted; the rest of the union is other people's buildings.
+  eq('a polygon is one part', geometry.polygonPartsOf(smallFootprint).length, 1)
+  eq('a union splits into its buildings', geometry.polygonPartsOf({
+    type: 'MultiPolygon',
+    coordinates: [smallFootprint.coordinates, neighbourFootprint.coordinates],
+  }).length, 2)
+  eq('a non-polygon has no parts', geometry.polygonPartsOf({ type: 'LineString', coordinates: [[0, 0], [1, 1]] }).length, 0)
+
+  const blockUnion = {
+    type: 'MultiPolygon',
+    coordinates: [
+      smallFootprint.coordinates,                       // the comp stands here
+      square(-71.0845, 42.3656, 0.0005).coordinates,    // 120 m east
+      square(-71.0875, 42.3668, 0.0005).coordinates,    // north west
+      square(-71.083, 42.364, 0.0005).coordinates,      // south east
+    ],
+  }
+  const unionPick = pick([{ id: 'union', geometry: blockUnion }])
+  eq('a union is matched by the part the comp is in', unionPick?.candidate.id, 'union')
+  eq('and only that one part is returned', unionPick?.geometry.type, 'Polygon')
+  truthy('the returned part is the one holding the comp',
+    geometry.pointInGeometry(-71.086, 42.3656, unionPick.geometry))
+  truthy('the returned part is not the whole union',
+    Math.abs(unionPick.areaSqMeters - areaOf(smallFootprint)) < 1,
+    `${unionPick.areaSqMeters} vs ${areaOf(smallFootprint)}`)
+  truthy('the union as a whole is four times the area',
+    areaOf(blockUnion) > 3.5 * areaOf(smallFootprint), `${areaOf(blockUnion)}`)
+  // The cap has to bite on the part, not the sum, or a union of small buildings slips through
+  // by being individually small while covering a neighbourhood.
+  // The part is about 9,100 m2 and the union about 36,500. A 20,000 cap therefore accepts the
+  // part and would reject the union, which is what proves the cap bites on the part.
+  truthy('the union total would fail a cap the part passes',
+    areaOf(blockUnion) > 20_000 && areaOf(smallFootprint) < 20_000,
+    `part ${Math.round(areaOf(smallFootprint))}, union ${Math.round(areaOf(blockUnion))}`)
+  eq('the area cap applies to the part, not the union total',
+    geometry.pickFootprintForPoint([{ id: 'union', geometry: blockUnion }], -71.086, 42.3656, 20_000)?.candidate.id,
+    'union')
+  eq('a part above the cap is still refused',
+    geometry.pickFootprintForPoint([{ id: 'union', geometry: blockUnion }], -71.086, 42.3656, 5_000), null)
+
+  // The highlight is drawn over the building it highlights, so it is grown a little to keep
+  // the two solids off each other's surfaces.
+  const grown = geometry.inflatePolygon(smallFootprint, 0.35)
+  truthy('inflating grows the footprint', areaOf(grown) > areaOf(smallFootprint))
+  truthy('but only by a fraction of a metre',
+    Math.sqrt(areaOf(grown)) - Math.sqrt(areaOf(smallFootprint)) < 1.2,
+    `${Math.sqrt(areaOf(grown)) - Math.sqrt(areaOf(smallFootprint))} m`)
+  truthy('the comp stays inside the inflated footprint',
+    geometry.pointInGeometry(-71.086, 42.3656, grown))
+  eq('inflating keeps the ring closed',
+    [grown.coordinates[0][0], grown.coordinates[0][grown.coordinates[0].length - 1]].map((p) => p.join(',')).join(' == ').split(' == ').length,
+    2)
+  eq('a zero inflation is a no-op', geometry.inflatePolygon(smallFootprint, 0), smallFootprint)
+  truthy('a courtyard is not swallowed by the inflation', (() => {
+    const withHole = geometry.inflatePolygon(donut, 0.35)
+    // The hole shrinks while the outline grows, so the ring between them can only widen.
+    return areaOf(withHole) > areaOf(donut)
+  })())
 
   // ------------------------------------------------------- draw geometry
   const ring = draw.circleRing(42.3656, -71.086, 500)

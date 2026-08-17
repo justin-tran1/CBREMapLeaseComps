@@ -264,7 +264,8 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 327 assertions
+npm run test:units               # terminal 2, 344 assertions
+npm run test:buildings           # terminal 2, 10 checks on the 3D building layer
 
 npm run build && npm run preview # terminal 1
 npm run test:e2e                 # terminal 2, 94 end-to-end checks
@@ -277,7 +278,10 @@ npm run test:standalone          # 9 checks against the single file, opened from
 containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation,
 geocoding precision grading, the Google response parser and place-id click resolution, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
-practice's export schema land on the right field. `tests/smoke.mjs` drives the real
+practice's export schema land on the right field. `tests/buildings.mjs` asks the map itself which
+footprints the sweep coloured in, which is the one thing the DOM cannot show and the one thing
+that has gone wrong twice; it needs the dev server, where the map is published on
+`window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
 synthetic vector tile generated in the test. `tests/standalone.mjs` opens the single-file
 build straight off disk, which is where the browser rules on workers and origins bite
@@ -299,30 +303,43 @@ Matching a comp to its building runs per comp rather than per building: each vis
 is projected to the screen and the footprints under that one point are queried, so the work
 scales with the deals on screen instead of the buildings in view.
 
-Three rules decide which footprint a comp belongs to, and together they are what keeps the
+Five rules decide which footprint a comp belongs to, and together they are what keeps the
 click area on the subject building:
 
+- **The comp's own coordinate must be rooftop-grade.** This one comes first because the other
+  four cannot survive a bad coordinate: applied to a point sitting in the roadway they will
+  faithfully name whichever neighbour the interpolation drifted towards. See the geocoding
+  section above.
 - **The query goes to a flat layer, never the 3D one.** Hit-testing an extrusion tests the
   whole solid, walls and roof included, so on a tilted map the building whose facade covers
   a pixel answers for ground it does not stand on, and the footprint genuinely under that
   ground can be hidden behind it. An invisible flat copy of the building layer answers in
   ground space, where a comp's coordinate lives. It is never drawn, only queried.
+- **Only the part of a feature the comp actually stands in is used.** Vector tile generators
+  union neighbouring buildings into a single multi-part feature, so one feature can carry
+  twenty footprints scattered across a neighbourhood. Highlighting the feature highlights all
+  twenty for one deal, which is what turned whole blocks green.
 - **The smallest footprint containing the coordinate wins.** OpenStreetMap routinely maps a
   medical campus or a whole block as one polygon with the individual buildings nested inside
   it, and both contain the comp. The inner one is the building.
 - **Nothing above 40,000 m² is accepted**, which is a 200 m square: enough for a large
-  hospital podium and not for a campus or a land parcel.
+  hospital podium and not for a campus or a land parcel. The test is applied to the single
+  part, never to a union's total, since a union of small buildings is individually small while
+  covering a neighbourhood.
 
 A footprint that fails these tests is left grey rather than approximated, and clicks only
-ever go to footprints that passed. `tests/smoke.mjs` puts a 1.3 km campus polygon around the
-fixture building and asserts that ground 190 m away opens nothing.
+ever go to footprints that passed. The highlight itself is grown by 35 cm and its roof lifted
+by half a metre, because two solids sharing a surface exactly leave the depth buffer nothing
+to decide with, and the result is grey speckling through the green.
 
-There is a fourth rule, and it is the one that matters most: **the comp's own coordinate has
-to be rooftop-grade before any of the above runs.** Three correct rules applied to a
-coordinate sitting in the roadway still name a neighbour, because whichever footprint contains
-that point is a matter of which way the interpolation drifted. Comps located less precisely
-than rooftop are reachable by their pin and colour in nothing, and the map says how many are in
-that state rather than leaving the absence looking like a fault.
+`tests/smoke.mjs` puts a 1.3 km campus polygon around the fixture building and asserts that
+ground 190 m away opens nothing. `tests/buildings.mjs` serves a four-building union as one
+feature and asserts that exactly one of them turns green and that clicking the others opens
+nothing.
+
+Comps located less precisely than rooftop are reachable by their pin and colour in nothing,
+and the map says how many are in that state rather than leaving the absence looking like a
+fault.
 
 ### The photorealistic engine
 

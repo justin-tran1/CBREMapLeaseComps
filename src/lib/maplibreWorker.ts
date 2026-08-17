@@ -23,6 +23,12 @@ import InlineMapLibreWorker from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker
  * is rejected outright on a file:// page while a blob classic worker runs fine. The
  * fragment is stripped before the blob is looked up, so it changes nothing but that
  * decision. Vite is configured to emit the worker as a classic script to match.
+ *
+ * That suffix belongs only on the bundled blob. The dev server does not inline the worker: it
+ * serves the real module over http, and asking for a classic worker there makes the browser
+ * refuse the file's own import statements ("Cannot use import statement outside a module"),
+ * which silently costs the dev server every vector and GeoJSON layer, 3D buildings included.
+ * So the classic-worker request is made only when a blob is what came back.
  */
 export function installMapLibreWorker(): boolean {
   if (typeof window === 'undefined' || typeof window.Worker !== 'function') return false
@@ -50,6 +56,6 @@ export function installMapLibreWorker(): boolean {
   }
 
   if (!capturedUrl) return false
-  setWorkerUrl(`${capturedUrl}#.cjs`)
+  setWorkerUrl(capturedUrl.startsWith('blob:') ? `${capturedUrl}#.cjs` : capturedUrl)
   return true
 }

@@ -206,13 +206,41 @@ export function geometryAreaSqMeters(geometry: GeoJSON.Geometry): number {
 }
 
 /**
+ * Split a geometry into its separate polygons, each with its own holes.
+ *
+ * This is the difference between one building and a whole block. Vector tile generators union
+ * neighbouring buildings into a single multi-part feature at lower zooms, so one feature can
+ * carry twenty unrelated footprints spread across a neighbourhood. Treating that feature as
+ * one shape is what coloured in a whole district for a single comp.
+ */
+export function polygonPartsOf(geometry: GeoJSON.Geometry): GeoJSON.Polygon[] {
+  if (geometry.type === 'Polygon') return [geometry]
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.map((rings) => ({ type: 'Polygon', coordinates: rings }))
+  }
+  return []
+}
+
+export interface FootprintPick<T> {
+  candidate: T
+  /** The single polygon the point falls in, never the whole multi-part feature. */
+  geometry: GeoJSON.Polygon
+  areaSqMeters: number
+}
+
+/**
  * Choose the footprint that actually belongs to a comp.
  *
- * Two things go wrong without this. Screen-space picking against extruded buildings can
- * return a neighbour whose facade happens to cover the queried pixel, so a candidate is
- * only accepted when it geographically contains the point. And OpenStreetMap frequently
- * maps a campus or a whole block as one polygon with the individual buildings nested
- * inside it, so the smallest containing footprint is the subject building.
+ * Three things go wrong without this:
+ *
+ *  - Screen-space picking against extruded buildings can return a neighbour whose facade
+ *    happens to cover the queried pixel, so a candidate is only accepted when it
+ *    geographically contains the point.
+ *  - A feature can be a union of many buildings, so the search runs over the individual parts
+ *    and returns only the part the point is in. The area test applies to that part as well,
+ *    since summing a union's parts hides how big any one of them is.
+ *  - OpenStreetMap frequently maps a campus or a whole block as one polygon with the
+ *    individual buildings nested inside it, so the smallest containing footprint wins.
  *
  * A footprint larger than `maxAreaSqMeters` is refused outright rather than highlighted,
  * because a polygon that big is a campus or a land parcel, not the building a suite sits in.
@@ -222,19 +250,66 @@ export function pickFootprintForPoint<T extends { geometry: GeoJSON.Geometry }>(
   lng: number,
   lat: number,
   maxAreaSqMeters: number,
-): T | null {
-  let best: T | null = null
-  let bestArea = Infinity
+): FootprintPick<T> | null {
+  let best: FootprintPick<T> | null = null
 
   for (const candidate of candidates) {
-    if (!pointInGeometry(lng, lat, candidate.geometry)) continue
-    const area = geometryAreaSqMeters(candidate.geometry)
-    if (area <= 0 || area > maxAreaSqMeters) continue
-    if (area < bestArea) {
-      best = candidate
-      bestArea = area
+    for (const part of polygonPartsOf(candidate.geometry)) {
+      if (!pointInGeometry(lng, lat, part)) continue
+      const areaSqMeters = geometryAreaSqMeters(part)
+      if (areaSqMeters <= 0 || areaSqMeters > maxAreaSqMeters) continue
+      if (!best || areaSqMeters < best.areaSqMeters) {
+        best = { candidate, geometry: part, areaSqMeters }
+      }
     }
   }
 
   return best
+}
+
+/**
+ * Push a footprint's outline outward by a few centimetres.
+ *
+ * The highlight is a second extrusion drawn over the building it highlights. Two solids
+ * sharing a wall to the millimetre leaves the depth buffer no way to decide which is in front,
+ * and the result is the speckling of grey through green that makes a highlighted building look
+ * shredded. Growing the highlight very slightly puts its surfaces clear of the original.
+ *
+ * Vertices move away from the ring's own centre, which is exact for convex footprints and
+ * close enough on concave ones that a few centimetres of error cannot be seen.
+ */
+export function inflatePolygon(polygon: GeoJSON.Polygon, meters: number): GeoJSON.Polygon {
+  const outer = polygon.coordinates[0]
+  if (!outer || outer.length < 3 || meters <= 0) return polygon
+
+  let sumLng = 0
+  let sumLat = 0
+  for (const [lng, lat] of outer) {
+    sumLng += lng
+    sumLat += lat
+  }
+  const centreLng = sumLng / outer.length
+  const centreLat = sumLat / outer.length
+
+  const degPerMeterLat = 1 / 111_320
+  const cosLat = Math.max(0.01, Math.cos((centreLat * Math.PI) / 180))
+
+  const grow = (ring: number[][], outward: number): number[][] =>
+    ring.map(([lng, lat]) => {
+      // Work in metres so the shift is the same distance in both axes.
+      const dx = (lng - centreLng) * cosLat
+      const dy = lat - centreLat
+      const length = Math.hypot(dx, dy)
+      if (length === 0) return [lng, lat]
+      const scale = outward / (length / degPerMeterLat)
+      return [lng + (lng - centreLng) * scale, lat + (lat - centreLat) * scale]
+    })
+
+  return {
+    type: 'Polygon',
+    coordinates: polygon.coordinates.map((ring, index) =>
+      // Holes shrink, so a courtyard does not creep over the highlight's own wall.
+      grow(ring, index === 0 ? meters : -meters),
+    ),
+  }
 }

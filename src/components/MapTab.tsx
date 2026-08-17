@@ -20,6 +20,7 @@ import { isBuildingGrade } from '../lib/geocode'
 import {
   footprintKey,
   haversineMeters,
+  inflatePolygon,
   pickFootprintForPoint,
   pointInGeometry,
   shapeAreaLabel,
@@ -68,6 +69,14 @@ const BUILDING_MAX_FOOTPRINT_SQ_M = 40_000
  * because every candidate still has to contain the coordinate to be accepted.
  */
 const FOOTPRINT_QUERY_PAD_PX = 4
+/**
+ * The highlight is a second extrusion drawn over the building it highlights, and two solids
+ * sharing a surface exactly leaves the depth buffer nothing to decide with, which shows up as
+ * grey speckling through the green. Growing the highlight a few centimetres and lifting its
+ * roof half a metre puts every one of its surfaces clear of the original.
+ */
+const HIGHLIGHT_INFLATE_M = 0.35
+const HIGHLIGHT_LIFT_M = 0.5
 
 interface Selection {
   siteId: string
@@ -229,6 +238,16 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
 
     mapRef.current = map
     appliedStyleRef.current = `${basemap}|${dark}`
+
+    /*
+     * A handle on the map for the test suite, in development only. Which buildings the sweep
+     * decided to colour in is invisible from the DOM, and that is precisely the thing that has
+     * gone wrong before, so the tests need to be able to read it. Stripped from any production
+     * build by the constant folding on import.meta.env.DEV.
+     */
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __cbreMap?: MapLibreMap }).__cbreMap = map
+    }
 
     /*
      * Deliberately not `load`. That event waits on every source, so a network that blocks
@@ -418,7 +437,10 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
         continue
       }
 
-      // Must contain the coordinate, smallest wins, and nothing campus-sized is accepted.
+      /*
+       * Must contain the coordinate, must be a single part of the feature rather than the
+       * whole union, smallest wins, and nothing campus-sized is accepted.
+       */
       const hit = pickFootprintForPoint(hits, site.lon, site.lat, BUILDING_MAX_FOOTPRINT_SQ_M)
       if (!hit) continue
 
@@ -426,10 +448,16 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
       if (!key || seen.has(key)) continue
       seen.add(key)
 
+      const { height, base } = heightProps(hit.candidate)
       features.push({
         type: 'Feature',
-        properties: { ...heightProps(hit), siteId: site.id },
-        geometry: hit.geometry,
+        properties: {
+          // Lifted clear of the building underneath so the two roofs cannot fight for depth.
+          height: height + HIGHLIGHT_LIFT_M,
+          base,
+          siteId: site.id,
+        },
+        geometry: inflatePolygon(hit.geometry, HIGHLIGHT_INFLATE_M),
       })
     }
 
