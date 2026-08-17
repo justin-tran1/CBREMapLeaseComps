@@ -21,10 +21,17 @@ import wa_healthcare_news_scraper as scraper
 NOW = datetime.now(timezone.utc)
 
 ARTICLE_PAGE = b"""<!DOCTYPE html><html><head><title>t</title>
+<meta property="og:image"
+ content="https://cdn.example-news.com/photos/multicare-mob-tacoma.jpg">
 <script>var x = "junk that should never appear";</script></head><body>
-<nav><p>Home News Sports Subscribe to our newsletter for daily updates</p></nav>
+<nav><p>Home News Sports Subscribe to our newsletter for daily updates</p>
+<img src="/assets/site-logo.png" alt="Example News logo" width="200"
+ height="50"></nav>
 <article>
 <h1>MultiCare opens new medical office building in Tacoma</h1>
+<figure><img src="/photos/multicare-building-front.jpg"
+ alt="The new MultiCare medical office building in Tacoma" width="1200"
+ height="800"><figcaption>The new building.</figcaption></figure>
 <p>MultiCare Health System opened a new 60,000 square foot medical office
 building in Tacoma on Monday, expanding outpatient care capacity across
 Pierce County for thousands of patients.</p>
@@ -491,10 +498,14 @@ class TestArticleExtraction(unittest.TestCase):
         def fetcher(url, **kwargs):
             return ARTICLE_PAGE
 
-        text, final_url, status = scraper.fetch_article_text(
+        text, final_url, status, image = scraper.fetch_article_text(
             "https://www.example-news.com/a", fetcher=fetcher)
         self.assertEqual(status, "ok")
         self.assertIn("MultiCare", text)
+        self.assertEqual(image["origin"], "publisher")
+        self.assertEqual(
+            image["url"],
+            "https://cdn.example-news.com/photos/multicare-mob-tacoma.jpg")
 
     def test_fetch_article_google_redirect(self):
         def fetcher(url, **kwargs):
@@ -502,21 +513,108 @@ class TestArticleExtraction(unittest.TestCase):
                 return GOOGLE_REDIRECT_PAGE
             return ARTICLE_PAGE
 
-        text, final_url, status = scraper.fetch_article_text(
+        text, final_url, status, image = scraper.fetch_article_text(
             "https://news.google.com/rss/articles/abc", fetcher=fetcher)
         self.assertEqual(status, "ok")
         self.assertEqual(final_url,
                          "https://www.example-news.com/multicare-tacoma")
         self.assertIn("$150 million", text)
+        self.assertIsNotNone(image)
 
     def test_fetch_article_failure_is_unavailable(self):
         def fetcher(url, **kwargs):
             raise OSError("offline")
 
-        text, final_url, status = scraper.fetch_article_text(
+        text, final_url, status, image = scraper.fetch_article_text(
             "https://www.example-news.com/a", fetcher=fetcher)
         self.assertEqual(status, "unavailable")
         self.assertEqual(text, "")
+        self.assertIsNone(image)
+
+
+class TestImages(unittest.TestCase):
+    TITLE = "MultiCare opens new medical office building in Tacoma"
+
+    def test_publisher_og_image_wins(self):
+        page = scraper.extract_page(ARTICLE_PAGE.decode("utf-8"))
+        image = scraper.select_article_image(
+            page, "https://www.example-news.com/a", self.TITLE)
+        self.assertEqual(image["origin"], "publisher")
+        self.assertIn("multicare-mob-tacoma.jpg", image["url"])
+
+    def test_logo_in_nav_never_selected(self):
+        page = scraper.extract_page(ARTICLE_PAGE.decode("utf-8"))
+        urls = [c["url"] for c in page["img_candidates"]]
+        self.assertNotIn("/assets/site-logo.png", urls)
+
+    def test_in_article_fallback_scored_by_alt_relevance(self):
+        html = """<html><body><article>
+        <img src="/img/stock-generic-photo.jpg" width="800" height="600"
+         alt="A generic city skyline view">
+        <img src="/img/multicare-tacoma-clinic.jpg" width="800" height="600"
+         alt="MultiCare medical office building in Tacoma">
+        </article></body></html>"""
+        page = scraper.extract_page(html)
+        image = scraper.select_article_image(
+            page, "https://www.example-news.com/a", self.TITLE)
+        self.assertEqual(image["origin"], "in-article")
+        self.assertIn("multicare-tacoma-clinic.jpg", image["url"])
+        # Relative URL was joined against the article URL.
+        self.assertTrue(image["url"].startswith(
+            "https://www.example-news.com/"))
+
+    def test_excluded_patterns_and_tiny_images(self):
+        html = """<html><body><article>
+        <img src="/img/site-logo-large.png" width="900" height="700" alt="">
+        <img src="/pixels/tracker-1x1.gif" width="1" height="1" alt="">
+        <img src="/ads/banner-advert.jpg" width="900" height="700" alt="">
+        </article></body></html>"""
+        page = scraper.extract_page(html)
+        self.assertIsNone(scraper.select_article_image(
+            page, "https://x.com/a", self.TITLE))
+
+    def test_lazy_src_and_srcset(self):
+        html = """<html><body><article>
+        <img data-src="/photos/real-multicare-image.jpg" src="data:image/gif;base64,R0"
+         alt="MultiCare building in Tacoma" width="900" height="600">
+        <img srcset="/p/small.jpg 300w, /p/medium.jpg 768w, /p/huge.jpg 1600w"
+         alt="Tacoma medical office">
+        </article></body></html>"""
+        page = scraper.extract_page(html)
+        urls = [c["url"] for c in page["img_candidates"]]
+        self.assertIn("/photos/real-multicare-image.jpg", urls)
+        self.assertIn("/p/huge.jpg", urls)
+
+    def test_rss_media_image_parsed_and_used(self):
+        rss = ("""<?xml version="1.0"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel>
+<item>
+  <title>EvergreenHealth opens Kirkland clinic</title>
+  <link>https://x.com/a</link>
+  <pubDate>""" + rfc822(NOW - timedelta(hours=1)) + """</pubDate>
+  <description>A new clinic in Kirkland.</description>
+  <media:content url="https://cdn.x.com/clinic-photo.jpg" medium="image"/>
+</item>
+</channel></rss>""").encode("utf-8")
+        items = scraper.parse_feed(rss)
+        self.assertEqual(items[0]["image_url"],
+                         "https://cdn.x.com/clinic-photo.jpg")
+        art, reason = scraper.evaluate_item(items[0], origin="test")
+        self.assertIsNone(reason)
+        self.assertEqual(art.image["origin"], "feed")
+        self.assertEqual(art.image["url"],
+                         "https://cdn.x.com/clinic-photo.jpg")
+
+    def test_sniff_image_mime(self):
+        self.assertEqual(scraper._sniff_image_mime(b"\xff\xd8\xff\xe0x"),
+                         "image/jpeg")
+        self.assertEqual(scraper._sniff_image_mime(b"\x89PNG\r\n\x1a\n"),
+                         "image/png")
+        self.assertEqual(
+            scraper._sniff_image_mime(b"RIFF\x00\x00\x00\x00WEBPVP8"),
+            "image/webp")
+        self.assertIsNone(scraper._sniff_image_mime(b"RIFF____WAVEfmt "))
+        self.assertIsNone(scraper._sniff_image_mime(b"<html>"))
 
 
 class TestSummarization(unittest.TestCase):
@@ -813,6 +911,12 @@ class TestEnrichedPipeline(unittest.TestCase):
         counts = meta["consistency_counts"]
         self.assertEqual(counts["corroborated"], 1)
         self.assertEqual(counts["single-source"], 4)
+        # The matching page's publisher image was kept ...
+        self.assertEqual(mo.image["origin"], "publisher")
+        self.assertIn("multicare-mob-tacoma.jpg", mo.image["url"])
+        # ... while a mismatched page loses its image with its text.
+        prov = next(a for a in flat if "lays off" in a.title)
+        self.assertIsNone(prov.image)
 
     def test_reports_include_new_sections(self):
         args = scraper.parse_args(["--delay", "0", "--engines", "google"])
@@ -828,15 +932,56 @@ class TestEnrichedPipeline(unittest.TestCase):
             self.assertIn("Single source", html_text)
             self.assertIn("Also reported by", html_text)
             self.assertIn("class='points'", html_text)
+            self.assertIn("class='thumb'", html_text)
+            self.assertIn("multicare-mob-tacoma.jpg", html_text)
             md_text = next(p for p in written
                            if p.suffix == ".md").read_text("utf-8")
             self.assertIn("## Daily Digest", md_text)
             self.assertIn("Consistency: **[", md_text)
+            self.assertIn("![", md_text)
             data = json.loads(next(p for p in written
                                    if p.suffix == ".json").read_text("utf-8"))
             self.assertIn("digest", data)
             self.assertIn("consistency_counts", data)
             self.assertTrue(all("key_points" in a for a in data["articles"]))
+            self.assertTrue(all("image" in a for a in data["articles"]))
+
+    def test_embed_and_no_images(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"0" * 120
+
+        def fetcher(url, **kwargs):
+            if "news.google.com/rss/search" in url:
+                return GNEWS_FIXTURE
+            if "news.google.com/rss/articles" in url:
+                return GOOGLE_REDIRECT_PAGE
+            if "cdn.example-news.com" in url:
+                return png
+            if "example-news.com" in url:
+                return ARTICLE_PAGE
+            raise OSError("offline")
+
+        args = scraper.parse_args(
+            ["--delay", "0", "--engines", "google", "--skip-direct-feeds",
+             "--embed-images"])
+        grouped, flat, meta = scraper.run(args, fetcher=fetcher)
+        mo = next(a for a in flat if "MultiCare opens" in a.title)
+        self.assertTrue(mo.image["data_uri"].startswith(
+            "data:image/png;base64,"))
+        html_text = scraper.render_html(grouped, meta)
+        self.assertIn("data:image/png;base64,", html_text)
+        # JSON exports the URL but never the bulky data URI.
+        data = json.loads(scraper.render_json(flat, meta))
+        mo_json = next(a for a in data["articles"]
+                       if "MultiCare opens" in a["title"])
+        self.assertNotIn("data_uri", mo_json["image"])
+
+        args = scraper.parse_args(
+            ["--delay", "0", "--engines", "google", "--skip-direct-feeds",
+             "--no-images"])
+        grouped, flat, meta = scraper.run(args, fetcher=fetcher)
+        self.assertTrue(all(a.image is None for a in flat))
+        self.assertNotIn("class='thumb'",
+                         scraper.render_html(grouped, meta))
 
     def test_discrepancy_flagged_end_to_end(self):
         # Two outlets, same story, $150M vs $120M -> discrepancy chip.

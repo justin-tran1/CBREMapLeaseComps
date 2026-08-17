@@ -30,9 +30,13 @@ How it works
    single-source, or discrepancy (with the conflicting figures listed).
 5. Fetches each article page and produces key-point summaries
    (extractive by default; optional Claude AI mode via --ai).
-6. Ends every report with a Daily Digest: a high-level summary of the
+6. Picks the most fitting image for each article: the publisher's own
+   og:image/twitter:image choice first, then feed media, then in-article
+   photos scored by how well their alt text matches the headline (page
+   chrome, logos, ads, and tracking pixels are excluded).
+7. Ends every report with a Daily Digest: a high-level summary of the
    day's coverage across all categories.
-7. Writes Markdown, HTML, and JSON reports grouped by category.
+8. Writes Markdown, HTML, and JSON reports grouped by category.
 
 Requires only the Python 3.9+ standard library -- no pip installs.
 The optional --ai mode calls the Anthropic API directly over HTTPS and
@@ -70,7 +74,7 @@ from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 USER_AGENT = (
     "Mozilla/5.0 (compatible; WAHealthcareNewsScraper/" + VERSION + "; "
     "+https://github.com/justin-tran1/CBREMapLeaseComps)"
@@ -486,6 +490,7 @@ class Article:
     corroborators: list = field(default_factory=list)  # [{source,title,url}]
     consistency: dict = field(default_factory=dict)    # {verdict, details}
     summary_method: str = "extractive"                 # extractive | ai
+    image: dict = None           # {url, alt, origin[, data_uri]} or None
 
     def to_dict(self, tz=None):
         local = self.published.astimezone(tz) if tz else self.published
@@ -499,6 +504,8 @@ class Article:
             "summary": self.summary,
             "key_points": self.key_points,
             "summary_method": self.summary_method,
+            "image": ({k: v for k, v in self.image.items()
+                       if k != "data_uri"} if self.image else None),
             "text_status": self.text_status,
             "consistency": self.consistency,
             "corroborators": self.corroborators,
@@ -620,10 +627,22 @@ def parse_feed(data):
             if _local_name(item.tag) != "item":
                 continue
             source_name, source_url = "", ""
+            media_image, media_thumb = "", ""
             for child in item:
-                if _local_name(child.tag) == "source":
+                name = _local_name(child.tag)
+                if name == "source":
                     source_name = (child.text or "").strip()
                     source_url = child.get("url", "")
+                elif name in ("content", "thumbnail", "enclosure"):
+                    url = child.get("url", "")
+                    kind = (child.get("medium", "")
+                            or child.get("type", "")).lower()
+                    if not url or (kind and not kind.startswith("image")):
+                        continue
+                    if name == "thumbnail":
+                        media_thumb = media_thumb or url
+                    else:
+                        media_image = media_image or url
             items.append({
                 "title": strip_html(_child_text(item, "title")),
                 "link": _child_text(item, "link") or _child_text(item, "guid"),
@@ -633,6 +652,7 @@ def parse_feed(data):
                                         or _child_text(item, "date")),
                 "source_name": source_name,
                 "source_url": source_url,
+                "image_url": media_image or media_thumb,
             })
     elif root_name == "feed":  # Atom
         for entry in root:
@@ -694,33 +714,85 @@ _BOILERPLATE_RE = re.compile(
 _SKIP_TAGS = {"script", "style", "noscript", "svg", "nav", "header",
               "footer", "aside", "form", "figure", "figcaption", "button",
               "iframe", "select", "template"}
+# Page chrome where images are logos/ads, never article photos.
+_CHROME_TAGS = {"nav", "header", "footer", "aside", "form"}
 _TEXT_TAGS = {"p", "li", "h1", "h2", "h3", "blockquote"}
+_META_IMAGE_KEYS = {
+    "og:image": 0, "og:image:url": 0, "og:image:secure_url": 0,
+    "twitter:image": 1, "twitter:image:src": 1,
+}
+
+
+def _pick_from_srcset(srcset):
+    """Return the last (usually largest) URL in a srcset attribute."""
+    try:
+        chunk = srcset.split(",")[-1].strip()
+        return chunk.split()[0] if chunk else ""
+    except (IndexError, AttributeError):
+        return ""
 
 
 class _ArticleTextExtractor(HTMLParser):
-    """Collects paragraph-level text and outbound links from a news page."""
+    """Collects paragraph text, links, and image candidates from a page."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self._skip_depth = 0
+        self._chrome_depth = 0
         self._buf = []
         self._capturing = 0
         self.paragraphs = []
         self.links = []
+        self.meta_images = []   # [(priority, url)] from og:/twitter: tags
+        self.img_candidates = []  # [{url, alt, width, height, order, lazy}]
+
+    def _record_img(self, attrs):
+        if self._chrome_depth > 0:
+            return  # logos and ads live in nav/header/footer/aside
+        src = (attrs.get("data-src") or attrs.get("data-lazy-src")
+               or attrs.get("data-original") or "")
+        lazy = bool(src)
+        if not src:
+            src = attrs.get("src") or ""
+        if (not src or src.startswith("data:")) and attrs.get("srcset"):
+            src = _pick_from_srcset(attrs["srcset"])
+            lazy = True
+        if not src or src.startswith("data:"):
+            return
+        self.img_candidates.append({
+            "url": src.strip(),
+            "alt": (attrs.get("alt") or "").strip(),
+            "width": attrs.get("width") or "",
+            "height": attrs.get("height") or "",
+            "order": len(self.img_candidates),
+            "lazy": lazy,
+        })
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
         if tag in _SKIP_TAGS:
             self._skip_depth += 1
+            if tag in _CHROME_TAGS:
+                self._chrome_depth += 1
         elif tag == "a":
-            href = dict(attrs).get("href", "")
+            href = attrs.get("href", "")
             if href.startswith("http"):
                 self.links.append(href)
+        if tag == "img":
+            self._record_img(attrs)
+        elif tag == "meta":
+            key = (attrs.get("property") or attrs.get("name") or "").lower()
+            content = (attrs.get("content") or "").strip()
+            if content and key in _META_IMAGE_KEYS:
+                self.meta_images.append((_META_IMAGE_KEYS[key], content))
         if self._skip_depth == 0 and tag in _TEXT_TAGS:
             self._capturing += 1
 
     def handle_endtag(self, tag):
         if tag in _SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
+            if tag in _CHROME_TAGS and self._chrome_depth > 0:
+                self._chrome_depth -= 1
             return
         if tag in _TEXT_TAGS and self._capturing > 0:
             self._capturing -= 1
@@ -735,8 +807,8 @@ class _ArticleTextExtractor(HTMLParser):
             self._buf.append(data)
 
 
-def extract_article_text(html_text, max_chars=12000):
-    """Extract readable paragraph text from a news article page."""
+def extract_page(html_text, max_chars=12000):
+    """Parse a news page into text, links, and image candidates."""
     parser = _ArticleTextExtractor()
     try:
         parser.feed(html_text)
@@ -744,7 +816,76 @@ def extract_article_text(html_text, max_chars=12000):
     except Exception:
         pass  # salvage whatever was parsed before the error
     text = "\n".join(parser.paragraphs)
-    return text[:max_chars], parser.links
+    return {
+        "text": text[:max_chars],
+        "links": parser.links,
+        "meta_images": parser.meta_images,
+        "img_candidates": parser.img_candidates,
+    }
+
+
+def extract_article_text(html_text, max_chars=12000):
+    """Extract readable paragraph text from a news article page."""
+    page = extract_page(html_text, max_chars)
+    return page["text"], page["links"]
+
+
+# Never use these as an article image: chrome, ads, trackers, placeholders.
+_IMG_EXCLUDE_RE = re.compile(
+    r"(logo|icon|sprite|avatar|placeholder|pixel|1x1|blank|spacer|badge|"
+    r"button|advert|banner|masthead|share|social|emoji|favicon|gravatar|"
+    r"doubleclick|adsystem|\.svg(\?|$))", re.IGNORECASE)
+
+
+def _dim(value):
+    try:
+        return int(str(value).strip().rstrip("px"))
+    except (ValueError, TypeError):
+        return 0
+
+
+def select_article_image(page, base_url, title):
+    """Choose the image that best represents the article.
+
+    Judgment order: the publisher's own og:image / twitter:image pick is
+    trusted first (that IS the outlet's representative image for the
+    story), then in-article photos scored by subject fit: alt-text
+    overlap with the headline, rendered size, and position; page chrome,
+    logos, ads, and tracking pixels are excluded.
+    """
+    for _priority, url in sorted(page.get("meta_images", []),
+                                 key=lambda pair: pair[0]):
+        if not _IMG_EXCLUDE_RE.search(url):
+            return {"url": urllib.parse.urljoin(base_url, url),
+                    "alt": title, "origin": "publisher"}
+    title_tokens = {t for t in normalize_title(title).split() if len(t) >= 4}
+    best, best_score = None, 0.0
+    for cand in page.get("img_candidates", [])[:25]:
+        url = cand["url"]
+        if _IMG_EXCLUDE_RE.search(url):
+            continue
+        width, height = _dim(cand["width"]), _dim(cand["height"])
+        if 0 < width < 120 or 0 < height < 120:
+            continue  # thumbnails, bullets, and trackers
+        score = max(0.0, 3.0 - cand["order"] * 0.5)  # lead art comes first
+        area = width * height
+        if area >= 600 * 400:
+            score += 3.0
+        elif area >= 300 * 200:
+            score += 2.0
+        alt_norm = " " + normalize_title(cand["alt"]) + " "
+        overlap = sum(1 for t in title_tokens if " %s" % t[:6] in alt_norm)
+        score += min(overlap, 3) * 1.5  # alt text matching the headline
+        if cand["lazy"]:
+            score += 0.5  # responsive/lazy images are real content images
+        if re.search(r"(thumb|-\d{2,3}x\d{2,3}\.)", url, re.IGNORECASE):
+            score -= 1.0
+        if score > best_score:
+            best, best_score = cand, score
+    if best and best_score >= 2.0:
+        return {"url": urllib.parse.urljoin(base_url, best["url"]),
+                "alt": best["alt"] or title, "origin": "in-article"}
+    return None
 
 
 _GOOGLE_HOSTS = ("google.com", "googleusercontent.com", "gstatic.com",
@@ -765,12 +906,13 @@ def resolve_google_news_target(html_text, links):
 
 
 def fetch_article_text(url, timeout=DEFAULT_ARTICLE_TIMEOUT, ctx=None,
-                       fetcher=None, max_chars=12000):
-    """Download an article page and extract its text.
+                       fetcher=None, max_chars=12000, title=""):
+    """Download an article page; extract its text and best image.
 
-    Returns (text, final_url, status) where status is ok | partial |
-    unavailable. Handles Google News redirect pages by resolving the real
-    article URL and fetching that. Never raises.
+    Returns (text, final_url, status, image) where status is ok | partial
+    | unavailable and image is a dict {url, alt, origin} or None. Handles
+    Google News redirect pages by resolving the real article URL and
+    fetching that. Never raises.
     """
     fetcher = fetcher or http_get
     try:
@@ -778,22 +920,24 @@ def fetch_article_text(url, timeout=DEFAULT_ARTICLE_TIMEOUT, ctx=None,
         html_text = data[:MAX_ARTICLE_BYTES].decode("utf-8", errors="replace")
         final_url = url
         if "news.google.com" in domain_of(url):
-            text, links = extract_article_text(html_text, max_chars)
-            target = resolve_google_news_target(html_text, links)
+            page = extract_page(html_text, max_chars)
+            target = resolve_google_news_target(html_text, page["links"])
             if not target:
-                return "", url, "unavailable"
+                return "", url, "unavailable", None
             final_url = target
             data = fetcher(target, timeout=timeout, ctx=ctx, retries=1)
             html_text = data[:MAX_ARTICLE_BYTES].decode(
                 "utf-8", errors="replace")
-        text, _links = extract_article_text(html_text, max_chars)
+        page = extract_page(html_text, max_chars)
+        text = page["text"]
+        image = select_article_image(page, final_url, title)
         if len(text) >= 450:
-            return text, final_url, "ok"
+            return text, final_url, "ok", image
         if len(text) >= 120:
-            return text, final_url, "partial"  # paywall or teaser page
-        return text, final_url, "unavailable"
+            return text, final_url, "partial", image  # paywall/teaser page
+        return text, final_url, "unavailable", None
     except Exception:
-        return "", url, "unavailable"
+        return "", url, "unavailable", None
 
 
 # ---------------------------------------------------------------------------
@@ -1097,6 +1241,10 @@ def evaluate_item(raw, origin, region_implied=False, topic_implied=False,
             category = key
 
     source = source_name or src_domain or domain_of(url) or "unknown"
+    rss_image = (raw.get("image_url") or "").strip()
+    image = None
+    if rss_image and not _IMG_EXCLUDE_RE.search(rss_image):
+        image = {"url": rss_image, "alt": title, "origin": "feed"}
     return Article(
         title=title,
         url=url,
@@ -1108,6 +1256,7 @@ def evaluate_item(raw, origin, region_implied=False, topic_implied=False,
         region_hits=sorted(set(region_hits)),
         topic_hits=sorted(set(topic_hits)),
         score=region_score + sum(cat_scores.values()),
+        image=image,
     ), None
 
 
@@ -1560,6 +1709,10 @@ def render_markdown(grouped, meta):
                                 relative_age(art.published, meta["now"]))
             lines.append("- **[%s](%s)**  " % (art.title, art.url))
             lines.append("  %s · %s  " % (art.source, when))
+            if art.image:
+                lines.append("  ![%s](%s)  " % (
+                    (art.image.get("alt") or art.title).replace("]", ")"),
+                    art.image["url"]))
             for point in art.key_points:
                 lines.append("  - %s" % point)
             if not art.key_points and art.summary:
@@ -1624,7 +1777,12 @@ h2 .count { background:var(--green); color:#fff; border-radius:10px;
             margin-left:8px; }
 .card { background:var(--card); border:1px solid var(--line);
         border-left:4px solid var(--accent); border-radius:8px;
-        padding:13px 16px; margin-bottom:10px; }
+        padding:13px 16px; margin-bottom:10px; display:flex; gap:14px;
+        align-items:flex-start; }
+.card-body { flex:1; min-width:0; }
+.thumb { width:150px; height:100px; object-fit:cover; border-radius:6px;
+         flex:none; margin-top:2px; background:#eef0ef; }
+@media (max-width:600px) { .thumb { width:96px; height:72px; } }
 .card a.title { color:var(--green); font-weight:600; font-size:15px;
                 text-decoration:none; }
 .card a.title:hover { text-decoration:underline; }
@@ -1686,7 +1844,7 @@ def render_html(grouped, meta):
             local = art.published.astimezone(meta["tz"])
             when = "%s · %s" % (local.strftime("%a %b %d, %I:%M %p %Z"),
                                 relative_age(art.published, meta["now"]))
-            parts.append("<div class='card'>")
+            parts.append("<div class='card'><div class='card-body'>")
             parts.append("<a class='title' href='%s' target='_blank' "
                          "rel='noopener'>%s</a>" % (
                              esc(art.url, quote=True), esc(art.title)))
@@ -1718,6 +1876,15 @@ def render_html(grouped, meta):
                     for c in art.corroborators[:4])
                 parts.append("<div class='also'>Also reported by: %s</div>"
                              % links)
+            parts.append("</div>")  # /card-body
+            if art.image:
+                src = art.image.get("data_uri") or art.image["url"]
+                parts.append(
+                    "<img class='thumb' src='%s' alt='%s' loading='lazy' "
+                    "referrerpolicy='no-referrer' "
+                    "onerror=\"this.style.display='none'\">" % (
+                        esc(src, quote=True),
+                        esc(art.image.get("alt") or art.title, quote=True)))
             parts.append("</div>")
         parts.append("</section>")
 
@@ -1810,15 +1977,54 @@ def _text_matches_title(title, text):
 
 
 def _fetch_into(article, args, ctx, fetcher):
-    """Fetch one article's page; keep the text only if it matches."""
-    original_url = article.url
-    text, final_url, status = fetch_article_text(
-        article.url, timeout=args.article_timeout, ctx=ctx, fetcher=fetcher)
+    """Fetch one article's page; keep text/image only if the page matches."""
+    text, final_url, status, image = fetch_article_text(
+        article.url, timeout=args.article_timeout, ctx=ctx, fetcher=fetcher,
+        title=article.title)
     if status != "unavailable" and not _text_matches_title(article.title,
                                                            text):
-        return original_url, "", "unavailable"
-    return (final_url if status != "unavailable" else original_url,
-            text, status)
+        # Wrong page (bad redirect): discard its text and image alike.
+        article.article_text, article.text_status = "", "unavailable"
+        return
+    article.article_text, article.text_status = text, status
+    if status != "unavailable":
+        article.url = final_url  # replace redirect links with the real URL
+        if image:
+            article.image = image  # the page's pick beats the RSS fallback
+
+
+def _sniff_image_mime(data):
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def embed_images(articles, args, ctx, fetcher):
+    """Download report images and inline them as data URIs (--embed-images),
+    so the HTML report is self-contained for emailing. Oversized or
+    unfetchable images stay as plain links."""
+    import base64
+    for art in articles:
+        image = art.image
+        if not image or not image.get("url", "").startswith("http"):
+            continue
+        try:
+            data = fetcher(image["url"], timeout=args.article_timeout,
+                           ctx=ctx, retries=1)
+        except Exception:
+            continue
+        mime = _sniff_image_mime(data)
+        if mime and len(data) <= 500_000:
+            image["data_uri"] = "data:%s;base64,%s" % (
+                mime, base64.b64encode(data).decode("ascii"))
+        if args.delay > 0:
+            time.sleep(args.delay / 2)
 
 
 def enrich_clusters(clusters, args, ctx, fetcher):
@@ -1830,15 +2036,13 @@ def enrich_clusters(clusters, args, ctx, fetcher):
         if budget > 0:
             if args.verbose:
                 print("  reading %.90s" % art.url)
-            art.url, art.article_text, art.text_status = _fetch_into(
-                art, args, ctx, fetcher)
+            _fetch_into(art, args, ctx, fetcher)
             budget -= 1
             stats[art.text_status] += 1
             # One corroborator's text sharpens the consistency check.
             if cluster.corroborators and budget > 0:
                 corr = cluster.corroborators[0]
-                corr.url, corr.article_text, corr.text_status = _fetch_into(
-                    corr, args, ctx, fetcher)
+                _fetch_into(corr, args, ctx, fetcher)
                 budget -= 1
             if args.delay > 0:
                 time.sleep(args.delay / 2)
@@ -1915,6 +2119,12 @@ def run(args, fetcher=http_get):
     grouped = group_by_category(articles, args.max_per_category)
     kept = sum(len(arts) for _k, _t, arts in grouped)
     flat = [a for _k, _t, arts in grouped for a in arts]
+
+    if args.no_images:
+        for art in flat:
+            art.image = None
+    elif args.embed_images:
+        embed_images(flat, args, ctx, fetcher)
 
     # Optional AI pass upgrades key points and consistency notes.
     ai_used = False
@@ -2079,6 +2289,12 @@ def parse_args(argv=None):
                         default=DEFAULT_ARTICLE_TIMEOUT,
                         help="per-article download timeout seconds "
                              "(default: %d)" % DEFAULT_ARTICLE_TIMEOUT)
+    parser.add_argument("--no-images", action="store_true",
+                        help="leave article images out of the reports")
+    parser.add_argument("--embed-images", action="store_true",
+                        help="download images and inline them into the HTML "
+                             "report as data URIs (self-contained for "
+                             "emailing; larger file)")
     parser.add_argument("--ai", action="store_true",
                         help="use the Anthropic API (ANTHROPIC_API_KEY) for "
                              "key points, consistency notes, and the digest")

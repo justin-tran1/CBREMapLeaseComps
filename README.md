@@ -23,6 +23,7 @@ Each report also includes:
 - **Key points per article.** The script downloads each article page and pulls out the two or three most informative sentences. Summaries are extractive, so every key point is a verbatim sentence from the article, never invented text.
 - **Cross-source consistency checks.** When more than one outlet covers the same story, the script compares dollar amounts, headcounts, square footage, and percentages between them. Every article is marked **Corroborated** (2+ outlets, figures agree), **Single source** (no second outlet found in the scan), or **Discrepancy** (outlets disagree; the conflicting figures are listed so you know what to verify).
 - **Daily Digest.** Every report ends with a high-level summary of the day: article and category counts, the lead story per category, the largest dollar/headcount/square-footage figures of the day, and any discrepancy flags.
+- **Article images.** Each story card in the HTML report carries the image that best fits the article. The publisher's own choice (the og:image/twitter:image tag) is used first, then feed media, then in-article photos ranked by how well their alt text matches the headline and by size and position. Logos, ads, icons, and tracking pixels are excluded, and an image is dropped whenever the fetched page fails the headline match check. Images are linked from the source site by default; `--embed-images` downloads them into the HTML file so the report is self-contained for emailing, and `--no-images` produces a text-only brief.
 
 ### Requirements
 
@@ -52,6 +53,9 @@ Each run writes three timestamped reports to `news_reports/` (gitignored):
 --no-fetch-articles     skip downloading article pages (faster runs;
                         key points fall back to the RSS snippet)
 --max-article-fetches   cap on article pages to download (default: 40)
+--embed-images          inline article images into the HTML report
+                        (self-contained for emailing; larger file)
+--no-images             leave article images out of the reports
 --ai                    use Claude for key points, consistency notes,
                         and the digest (needs ANTHROPIC_API_KEY)
 --ai-model MODEL        model for --ai (default: claude-opus-5;
