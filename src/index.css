@@ -1092,6 +1092,9 @@ h1, h2, h3, h4 {
   top: calc(100% + 6px);
   right: 0;
   width: 232px;
+  /* Seven basemaps plus the boundary toggles can outgrow a short window. */
+  max-height: min(72vh, 560px);
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1137,6 +1140,42 @@ h1, h2, h3, h4 {
   font-size: 11px;
   color: var(--ink-muted);
   font-weight: 400;
+}
+
+/* boundary overlays, under the basemap list in the same panel */
+.basemap__overlays {
+  border-top: 1px solid var(--border-hairline);
+  margin-top: 5px;
+  padding-top: 7px;
+}
+
+.basemap__heading {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: 0 8px 4px;
+}
+
+.basemap__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.basemap__toggle:hover {
+  background: var(--surface-hover);
+}
+
+.basemap__toggle input {
+  margin: 2px 0 0;
+  flex: 0 0 auto;
 }
 
 .basemap__option:disabled {

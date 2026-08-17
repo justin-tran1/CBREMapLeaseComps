@@ -14,7 +14,15 @@ import {
   type MapMouseEvent,
 } from 'maplibre-gl'
 import { useApp } from '../state/AppContext'
-import { BUILDING_SOURCE_ID, buildStyle, getBasemap, LAYER, SOURCE } from '../lib/basemaps'
+import {
+  BOUNDARY_LAYER_ID,
+  BUILDING_SOURCE_ID,
+  buildStyle,
+  getBasemap,
+  LAYER,
+  SOURCE,
+  type BoundaryKind,
+} from '../lib/basemaps'
 import { markerColor } from '../lib/palette'
 import { isBuildingGrade } from '../lib/geocode'
 import {
@@ -77,6 +85,27 @@ const FOOTPRINT_QUERY_PAD_PX = 4
  */
 const HIGHLIGHT_INFLATE_M = 0.35
 const HIGHLIGHT_LIFT_M = 0.5
+
+const BOUNDARY_STORAGE_KEY = 'cbre-hcls-mapper.boundaries.v1'
+
+/** Which administrative outlines are switched on. */
+export type BoundaryToggles = Record<BoundaryKind, boolean>
+
+const NO_BOUNDARIES: BoundaryToggles = { city: false, county: false }
+
+function readBoundaryToggles(): BoundaryToggles {
+  try {
+    const raw = localStorage.getItem(BOUNDARY_STORAGE_KEY)
+    const value = raw ? (JSON.parse(raw) as Partial<BoundaryToggles>) : null
+    if (!value) return NO_BOUNDARIES
+    return {
+      city: value.city === true,
+      county: value.county === true,
+    }
+  } catch {
+    return NO_BOUNDARIES
+  }
+}
 
 interface Selection {
   siteId: string
@@ -165,6 +194,19 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
   const [previewShape, setPreviewShape] = useState<DrawnShape | null>(null)
   const [threeD, setThreeD] = useState(true)
   const [buildingsFailed, setBuildingsFailed] = useState(false)
+  const [boundaries, setBoundariesState] = useState<BoundaryToggles>(readBoundaryToggles)
+
+  const setBoundary = useCallback((kind: BoundaryKind, on: boolean) => {
+    setBoundariesState((prev) => {
+      const next = { ...prev, [kind]: on }
+      try {
+        localStorage.setItem(BOUNDARY_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // Private browsing. The choice holds for this session.
+      }
+      return next
+    })
+  }, [])
 
   const setSelection = useCallback((next: Selection | null) => {
     selectionRef.current = next
@@ -316,6 +358,23 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     if (!ready) return
     applyOverlayData()
   }, [ready, applyOverlayData])
+
+  // ----------------------------------------------------- boundary outlines
+
+  /*
+   * Both outlines live in the style from the start and are only shown or hidden, so switching
+   * one on costs no request the tiles have not already made for the buildings.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    for (const kind of ['city', 'county'] as const) {
+      const id = BOUNDARY_LAYER_ID[kind]
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', boundaries[kind] ? 'visible' : 'none')
+      }
+    }
+  }, [ready, boundaries, basemap, dark])
 
   // --------------------------------------------------------------- 3D view
 
@@ -803,7 +862,12 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
       </div>
 
       <div className="map-overlay map-topright">
-        <BasemapSwitcher value={basemap} onChange={setBasemap} />
+        <BasemapSwitcher
+          value={basemap}
+          onChange={setBasemap}
+          boundaries={boundaries}
+          onBoundaryChange={setBoundary}
+        />
         <GoogleSettings />
 
         <div className="floatcard maptools" role="group" aria-label="Map tools">

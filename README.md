@@ -173,6 +173,29 @@ the table.
 labels, light, streets, light gray canvas, topographic, and dark. Buildings extrude over
 all of them.
 
+**Boundaries.** Two overlays sit under the basemap list, and either or both can be on:
+
+| Overlay | What it draws | Appears from |
+| --- | --- | --- |
+| City limits | Incorporated place boundaries, dashed and thin | Zoom 12 |
+| County lines | County boundaries, solid and heavier | Zoom 8 |
+
+They come from the same OpenStreetMap vector tiles as the buildings, so switching one on costs
+no new service, no key, and no request the map has not already made. They draw in violet rather
+than green, because green is what a building holding a deal wears and a boundary must never be
+mistaken for a comp. The choice is remembered and survives a basemap change.
+
+Both zoom thresholds are the tiles' own: administrative levels five and six are published from
+zoom 8 and level eight upwards from zoom 12, so asking earlier would draw nothing.
+
+One subtlety is worth knowing, because it looks like a bug when a tool gets it wrong. A boundary
+shared by several levels is published at the lowest level taking part, so the stretch where a
+county follows a state line is tagged as a state boundary and the stretch where a city follows
+the county line is tagged as a county one. Both overlays therefore take every segment *at or
+below* their level, which is why the county outline stays closed along its state edge and the
+city outline has no hole where it meets the county. Maritime segments are left out: they trace
+the coastline out to sea, and nobody wants a county drawn around the water.
+
 **Search.** The box at the top left jumps to a property by name, address, tenant, lessor,
 suite, or submarket. Arrow keys move through the results; Enter opens the deal. Search
 moves the map, it does not filter the data.
@@ -294,11 +317,11 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 376 assertions
-npm run test:buildings           # terminal 2, 10 checks on the 3D building layer
+npm run test:units               # terminal 2, 395 assertions
+npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 115 end-to-end checks
+npm run test:e2e                 # terminal 2, 118 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
@@ -308,10 +331,10 @@ npm run test:standalone          # 9 checks against the single file, opened from
 containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation,
 geocoding precision grading, the Google response parser and place-id click resolution, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
-practice's export schema land on the right field. `tests/buildings.mjs` asks the map itself which
-footprints the sweep coloured in, which is the one thing the DOM cannot show and the one thing
-that has gone wrong twice; it needs the dev server, where the map is published on
-`window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
+practice's export schema land on the right field. `tests/maplayers.mjs` asks the map itself which
+footprints the sweep coloured in and which boundary segments the filters admitted, which the DOM
+cannot show and which is where this has gone wrong before; it needs the dev server, where the map
+is published on `window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
 synthetic vector tile generated in the test. `tests/standalone.mjs` opens the single-file
 build straight off disk, which is where the browser rules on workers and origins bite
@@ -363,9 +386,10 @@ by half a metre, because two solids sharing a surface exactly leave the depth bu
 to decide with, and the result is grey speckling through the green.
 
 `tests/smoke.mjs` puts a 1.3 km campus polygon around the fixture building and asserts that
-ground 190 m away opens nothing. `tests/buildings.mjs` serves a four-building union as one
+ground 190 m away opens nothing. `tests/maplayers.mjs` serves a four-building union as one
 feature and asserts that exactly one of them turns green and that clicking the others opens
-nothing.
+nothing, and serves boundary segments at four administrative levels to prove each outline takes
+in the segments shared with a lower level and leaves the maritime one alone.
 
 Comps located less precisely than rooftop are reachable by their pin and colour in nothing,
 and the map says how many are in that state rather than leaving the absence looking like a

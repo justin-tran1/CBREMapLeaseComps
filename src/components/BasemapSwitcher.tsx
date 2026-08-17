@@ -1,14 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
-import { BASEMAPS, getBasemap } from '../lib/basemaps'
+import { BASEMAPS, BOUNDARY_MIN_ZOOM, getBasemap, type BoundaryKind } from '../lib/basemaps'
 import { IconCheck, IconLayers } from './Icons'
 import type { BasemapId } from '../types'
+
+/** The administrative outlines, in the order they appear in the panel. */
+const BOUNDARY_OPTIONS: Array<{ kind: BoundaryKind; label: string; note: string }> = [
+  {
+    kind: 'city',
+    label: 'City limits',
+    note: `Incorporated place boundaries, from zoom ${BOUNDARY_MIN_ZOOM.city}`,
+  },
+  {
+    kind: 'county',
+    label: 'County lines',
+    note: `County boundaries, from zoom ${BOUNDARY_MIN_ZOOM.county}`,
+  },
+]
 
 interface BasemapSwitcherProps {
   value: BasemapId
   onChange: (id: BasemapId) => void
+  boundaries: Record<BoundaryKind, boolean>
+  onBoundaryChange: (kind: BoundaryKind, on: boolean) => void
 }
 
-export function BasemapSwitcher({ value, onChange }: BasemapSwitcherProps) {
+export function BasemapSwitcher({
+  value,
+  onChange,
+  boundaries,
+  onBoundaryChange,
+}: BasemapSwitcherProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const current = getBasemap(value)
@@ -47,7 +68,8 @@ export function BasemapSwitcher({ value, onChange }: BasemapSwitcherProps) {
       </button>
 
       {open && (
-        <div className="basemap__panel" role="radiogroup" aria-label="Basemap">
+        <div className="basemap__panel">
+          <div role="radiogroup" aria-label="Basemap">
           {BASEMAPS.map((map) => (
             <button
               key={map.id}
@@ -68,6 +90,29 @@ export function BasemapSwitcher({ value, onChange }: BasemapSwitcherProps) {
               {map.id === value && <IconCheck size={14} />}
             </button>
           ))}
+          </div>
+
+          {/*
+            Overlays, not basemaps: both can be on at once and neither replaces the imagery, so
+            they are checkboxes under their own heading rather than more radios. Ticking one
+            leaves the panel open, because comparing the two means ticking both.
+          */}
+          <div className="basemap__overlays" role="group" aria-label="Boundaries">
+            <div className="basemap__heading">Boundaries</div>
+            {BOUNDARY_OPTIONS.map((option) => (
+              <label key={option.kind} className="basemap__toggle">
+                <input
+                  type="checkbox"
+                  checked={boundaries[option.kind]}
+                  onChange={(e) => onBoundaryChange(option.kind, e.target.checked)}
+                />
+                <span className="grow">
+                  {option.label}
+                  <span className="basemap__sub">{option.note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
       )}
     </div>

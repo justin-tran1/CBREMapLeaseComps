@@ -406,6 +406,18 @@ check('escape closes the google panel', (await page.locator('.gsettings').count(
 await page.locator('.basemap .maptool').click()
 await page.waitForTimeout(200)
 check('basemap switcher lists 7 options', (await page.locator('.basemap__option').count()) === 7)
+check('the layer panel offers city and county outlines', (await page.locator('.basemap__toggle').count()) === 2)
+check(
+  'both outlines start unticked',
+  (await page.locator('.basemap__toggle input:checked').count()) === 0,
+)
+await page.locator('.basemap__toggle', { hasText: 'County lines' }).locator('input').check()
+await page.waitForTimeout(400)
+check(
+  'a boundary can be ticked without closing the panel',
+  (await page.locator('.basemap__toggle input:checked').count()) === 1 &&
+    (await page.locator('.basemap__option').count()) === 7,
+)
 await page.locator('.basemap__option', { hasText: 'Topographic' }).click()
 await page.waitForTimeout(900)
 check('basemap label updated', (await page.locator('.basemap .maptool').innerText()).includes('Topographic'))

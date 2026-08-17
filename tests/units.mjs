@@ -40,6 +40,7 @@ const results = await page.evaluate(async () => {
   const palette = await import('/src/lib/palette.ts')
   const googleMaps = await import('/src/lib/googleMaps.ts')
   const chartPrefs = await import('/src/lib/chartPrefs.ts')
+  const basemaps = await import('/src/lib/basemaps.ts')
   const google3d = await import('/src/components/GoogleMap3D.tsx')
 
   // ------------------------------------------------------------ toNumber
@@ -344,6 +345,65 @@ const results = await page.evaluate(async () => {
     // The hole shrinks while the outline grows, so the ring between them can only widen.
     return areaOf(withHole) > areaOf(donut)
   })())
+
+  // ------------------------------------------------- boundary outline layers
+  const style = basemaps.buildStyle(basemaps.getBasemap('cbre-light'), false)
+  const layerById = Object.fromEntries(style.layers.map((l) => [l.id, l]))
+  const cityLayer = layerById[basemaps.LAYER.cityLines]
+  const countyLayer = layerById[basemaps.LAYER.countyLines]
+
+  truthy('the style carries a city outline layer', !!cityLayer)
+  truthy('the style carries a county outline layer', !!countyLayer)
+  eq('both outlines read the building tiles', [cityLayer.source, countyLayer.source],
+    [basemaps.BUILDING_SOURCE_ID, basemaps.BUILDING_SOURCE_ID])
+  eq('both outlines read the boundary source layer',
+    [cityLayer['source-layer'], countyLayer['source-layer']], ['boundary', 'boundary'])
+  eq('both outlines start hidden',
+    [cityLayer.layout.visibility, countyLayer.layout.visibility], ['none', 'none'])
+  // The tiles publish 5-6 from zoom 8 and 8 upwards from zoom 12, so asking earlier is wasted.
+  eq('each outline waits for the zoom its data arrives at',
+    [countyLayer.minzoom, cityLayer.minzoom],
+    [basemaps.BOUNDARY_MIN_ZOOM.county, basemaps.BOUNDARY_MIN_ZOOM.city])
+  eq('the county line is the heavier of the two',
+    countyLayer.paint['line-width'][4] > cityLayer.paint['line-width'][4], true)
+  truthy('the city limit is dashed so the two can be told apart',
+    Array.isArray(cityLayer.paint['line-dasharray']))
+  truthy('an outline is never the green a comp building wears',
+    ![countyLayer.paint['line-color'], cityLayer.paint['line-color']]
+      .some((c) => [palette.CBRE.green, palette.CBRE.accentGreen].includes(c)),
+    `${countyLayer.paint['line-color']} / ${cityLayer.paint['line-color']}`)
+  truthy('outlines sit below the buildings, not over the roofs',
+    style.layers.findIndex((l) => l.id === basemaps.LAYER.countyLines) <
+      style.layers.findIndex((l) => l.id === basemaps.LAYER.buildings))
+  truthy('outlines sit above the imagery',
+    style.layers.findIndex((l) => l.id === basemaps.LAYER.base) <
+      style.layers.findIndex((l) => l.id === basemaps.LAYER.cityLines))
+
+  /*
+   * The filter has to be "at or below", not "equal to". A boundary shared by several levels is
+   * published at the lowest one participating, so a county following a state line carries 4 and
+   * a city following the county line carries 6. Equality would leave both outlines full of gaps.
+   */
+  const countyFilter = basemaps.boundaryFilter('county')
+  const cityFilter = basemaps.boundaryFilter('city')
+  eq('county segments are taken at or below level 6', countyFilter[1][0], '<=')
+  eq('county outlines stop at level 6', countyFilter[1][2], 6)
+  eq('city outlines stop at level 8', cityFilter[1][2], 8)
+  eq('maritime segments are excluded', countyFilter[2][0], '!=')
+  truthy('the maritime test reads the maritime flag',
+    JSON.stringify(countyFilter[2]).includes('maritime'), JSON.stringify(countyFilter[2]))
+  eq('the two filters differ only in the level they stop at',
+    JSON.stringify(countyFilter).replace('6', 'L'), JSON.stringify(cityFilter).replace('8', 'L'))
+  eq('a layer id is published for each kind',
+    [basemaps.BOUNDARY_LAYER_ID.city, basemaps.BOUNDARY_LAYER_ID.county],
+    [basemaps.LAYER.cityLines, basemaps.LAYER.countyLines])
+
+  // Aerial imagery is dark, so the outline has to step to its light value on every dark base.
+  const aerial = basemaps.buildStyle(basemaps.getBasemap('aerial'), false)
+  const aerialCounty = aerial.layers.find((l) => l.id === basemaps.LAYER.countyLines)
+  truthy('the outline changes value over dark imagery',
+    aerialCounty.paint['line-color'] !== countyLayer.paint['line-color'],
+    `${aerialCounty.paint['line-color']} vs ${countyLayer.paint['line-color']}`)
 
   // ------------------------------------------------------- draw geometry
   const ring = draw.circleRing(42.3656, -71.086, 500)

@@ -1,4 +1,4 @@
-import type { StyleSpecification } from 'maplibre-gl'
+import type { ExpressionSpecification, StyleSpecification } from 'maplibre-gl'
 import { BUILDING } from './palette'
 import type { BasemapId } from '../types'
 
@@ -116,10 +116,27 @@ export function getBasemap(id: BasemapId): BasemapDef {
 const BUILDING_SOURCE_URL = 'https://tiles.openfreemap.org/planet'
 export const BUILDING_SOURCE_ID = 'openmaptiles'
 export const BUILDING_SOURCE_LAYER = 'building'
+/**
+ * Administrative boundaries ride in the same vector tiles as the buildings, so city and county
+ * outlines cost no new host, no new key and no new way to fail. The layer carries `admin_level`
+ * as an integer, plus `maritime` and `disputed` as 0 or 1.
+ * https://github.com/openmaptiles/openmaptiles/blob/master/layers/boundary/boundary.yaml
+ */
+export const BOUNDARY_SOURCE_LAYER = 'boundary'
+
+/**
+ * In United States OpenStreetMap tagging, admin_level 6 is the county and 8 is the
+ * incorporated place. The tiles publish 5-6 from zoom 8 and 8 and above from zoom 12, which is
+ * why each outline appears at a different zoom.
+ */
+export const ADMIN_LEVEL = { county: 6, city: 8 } as const
+export const BOUNDARY_MIN_ZOOM = { county: 8, city: 12 } as const
 
 export const LAYER = {
   base: 'basemap',
   baseLabels: 'basemap-labels',
+  countyLines: 'boundary-county',
+  cityLines: 'boundary-city',
   buildings: 'buildings-3d',
   buildingPick: 'buildings-pick',
   buildingsComps: 'buildings-with-comps',
@@ -130,6 +147,32 @@ export const LAYER = {
   shapeFill: 'shape-fill',
   shapeLine: 'shape-line',
 } as const
+
+export type BoundaryKind = 'city' | 'county'
+
+export const BOUNDARY_LAYER_ID: Record<BoundaryKind, string> = {
+  county: LAYER.countyLines,
+  city: LAYER.cityLines,
+}
+
+/**
+ * Which boundary segments belong to an outline of this kind.
+ *
+ * The comparison is "at or below", not "equal to", and that is the whole subtlety. A boundary
+ * shared by several levels is published at the lowest one participating, so the stretch where a
+ * county follows a state line is tagged 4 rather than 6, and the stretch where a city follows
+ * the county line is tagged 6 rather than 8. Matching on equality alone would draw counties
+ * with their state-line edges missing and cities with holes wherever they meet the county, which
+ * is worse than useless on a comp map. Maritime segments are dropped: they trace the coastline
+ * out to sea, and nobody wants a county drawn around the water.
+ */
+export function boundaryFilter(kind: BoundaryKind): ExpressionSpecification {
+  return [
+    'all',
+    ['<=', ['to-number', ['get', 'admin_level']], ADMIN_LEVEL[kind]],
+    ['!=', ['to-number', ['coalesce', ['get', 'maritime'], 0]], 1],
+  ]
+}
 
 export const SOURCE = {
   buildingsComps: 'comps-buildings',
@@ -193,6 +236,51 @@ export function buildStyle(basemap: BasemapDef, dark: boolean): StyleSpecificati
   }
 
   const buildingDark = basemap.dark === true || dark
+
+  /*
+   * Administrative outlines sit above the imagery and below the buildings, so a boundary reads
+   * as something drawn on the ground rather than a line floating across roofs. Both start
+   * hidden; the layer switcher turns them on.
+   *
+   * Violet rather than green: green is what a building holding a deal is coloured, and a
+   * boundary must never be mistaken for a comp. The light and dark values are the brand's own
+   * plum and light violet, so the line holds up over pale canvas and over aerial imagery alike.
+   */
+  const boundaryColor = buildingDark ? '#a388bf' : '#885073'
+
+  style.layers.push(
+    {
+      id: LAYER.countyLines,
+      type: 'line',
+      source: BUILDING_SOURCE_ID,
+      'source-layer': BOUNDARY_SOURCE_LAYER,
+      minzoom: BOUNDARY_MIN_ZOOM.county,
+      filter: boundaryFilter('county'),
+      layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': boundaryColor,
+        'line-opacity': buildingDark ? 0.95 : 0.85,
+        // Thickens with zoom so the outline stays legible without shouting at metro scale.
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.1, 12, 1.8, 16, 2.6],
+      },
+    },
+    {
+      id: LAYER.cityLines,
+      type: 'line',
+      source: BUILDING_SOURCE_ID,
+      'source-layer': BOUNDARY_SOURCE_LAYER,
+      minzoom: BOUNDARY_MIN_ZOOM.city,
+      filter: boundaryFilter('city'),
+      layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'butt' },
+      paint: {
+        'line-color': boundaryColor,
+        'line-opacity': buildingDark ? 0.9 : 0.8,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.9, 16, 1.6],
+        // Dashed, so a city limit is still told apart from a county line when both are on.
+        'line-dasharray': [2.5, 1.5],
+      },
+    },
+  )
 
   style.layers.push(
     /*

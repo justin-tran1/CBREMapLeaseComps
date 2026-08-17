@@ -1,18 +1,18 @@
 /**
- * The 3D building layer, asserted rather than eyeballed.
+ * The map layers drawn from the vector tiles: 3D buildings and administrative boundaries.
  *
  * This suite exists because the screenshots that exposed the last two building bugs could not
- * be turned into a check against the DOM: which footprints the sweep decides to colour in
- * lives entirely inside the map, so the map itself has to be asked. In development the map is
- * published on `window.__cbreMap`, and these checks read the comps layer through it.
+ * be turned into a check against the DOM: which footprints the sweep decides to colour in, and
+ * which boundary segments a filter admits, live entirely inside the map, so the map itself has
+ * to be asked. In development it is published on `window.__cbreMap` for exactly that.
  *
- * The fixture is the shape that broke it in the field: vector tile generators union
+ * The building fixture is the shape that broke it in the field: vector tile generators union
  * neighbouring buildings into one multi-part feature, so a single feature can carry twenty
  * footprints spread across a neighbourhood. One comp inside one part used to paint the whole
  * union green.
  *
  *   npm run dev              # in one terminal, on port 5173
- *   node tests/buildings.mjs
+ *   npm run test:map
  *
  * Playwright is not a project dependency: npm i -D playwright geojson-vt vt-pbf
  */
@@ -76,6 +76,38 @@ const tileIndex = geojsonvt(
   { maxZoom: 20, indexMaxZoom: 20, extent: 4096, buffer: 64 },
 )
 
+/*
+ * Boundary segments as the tiles publish them. The admin_level on a shared segment is the
+ * lowest one participating, so the stretch where the city follows the county line carries 6 and
+ * the stretch where the county follows the state line carries 4. That is the case the filters
+ * have to get right: a county outline missing its state-line edge, or a city outline with a
+ * hole where it meets the county, is worse than no outline at all. The maritime segment is the
+ * coastline running out to sea, which nothing should draw.
+ */
+const line = (fromEast, fromNorth, toEast, toNorth) => ({
+  type: 'LineString',
+  coordinates: [
+    [COMP.lng + fromEast * mLng, COMP.lat + fromNorth * mLat],
+    [COMP.lng + toEast * mLng, COMP.lat + toNorth * mLat],
+  ],
+})
+
+const BOUNDARY_FIXTURE = [
+  { properties: { admin_level: 8, maritime: 0 }, geometry: line(-400, 200, 400, 200) },
+  { properties: { admin_level: 6, maritime: 0 }, geometry: line(-400, 120, 400, 120) },
+  { properties: { admin_level: 4, maritime: 0 }, geometry: line(-400, -120, 400, -120) },
+  { properties: { admin_level: 2, maritime: 0 }, geometry: line(-400, -200, 400, -200) },
+  { properties: { admin_level: 6, maritime: 1 }, geometry: line(-400, -260, 400, -260) },
+]
+
+const boundaryIndex = geojsonvt(
+  {
+    type: 'FeatureCollection',
+    features: BOUNDARY_FIXTURE.map((f) => ({ type: 'Feature', ...f })),
+  },
+  { maxZoom: 20, indexMaxZoom: 20, extent: 4096, buffer: 64 },
+)
+
 const browser = await chromium.launch(
   process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
 )
@@ -100,20 +132,25 @@ await page.route('**/tiles.openfreemap.org/planet*', (route) =>
       tiles: ['https://buildings.test/{z}/{x}/{y}.pbf'],
       minzoom: 0,
       maxzoom: 16,
-      vector_layers: [{ id: 'building', fields: {} }],
+      vector_layers: [{ id: 'building', fields: {} }, { id: 'boundary', fields: {} }],
     }),
   }),
 )
 await page.route('**://buildings.test/**', (route) => {
   const m = /\/(\d+)\/(\d+)\/(\d+)\.pbf/.exec(new URL(route.request().url()).pathname)
   if (!m) return route.abort()
-  const tile = tileIndex.getTile(Number(m[1]), Number(m[2]), Number(m[3]))
-  if (!tile) return route.fulfill({ status: 204, body: '' })
+  const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const layers = {}
+  const building = tileIndex.getTile(z, x, y)
+  const boundary = boundaryIndex.getTile(z, x, y)
+  if (building) layers.building = building
+  if (boundary) layers.boundary = boundary
+  if (!building && !boundary) return route.fulfill({ status: 204, body: '' })
   return route.fulfill({
     status: 200,
     contentType: 'application/x-protobuf',
     headers: { 'access-control-allow-origin': '*' },
-    body: Buffer.from(vtpbf.fromGeojsonVt({ building: tile }, { version: 2 })),
+    body: Buffer.from(vtpbf.fromGeojsonVt(layers, { version: 2 })),
   })
 })
 
@@ -242,9 +279,123 @@ check(
   farPopups ? await page.locator('.pop__title').first().innerText() : '',
 )
 
+async function closePopupIfOpen() {
+  const close = page.locator('.maplibregl-popup-close-button')
+  if (await close.count()) await close.first().click()
+  await page.waitForTimeout(250)
+}
+
 // Network noise from the sandbox proxy is not the application's doing; the smoke suite
 // asserts a clean console against the built app with every host routed.
 const appErrors = errors.filter((e) => !/Failed to load resource|ERR_TUNNEL|ERR_/.test(e))
+// ----------------------------------------------------- boundary outlines
+
+const boundaryState = async () =>
+  page.evaluate(() => {
+    const map = window.__cbreMap
+    const canvas = map.getCanvas()
+    const whole = [[0, 0], [canvas.clientWidth, canvas.clientHeight]]
+    const levels = (id) =>
+      map.getLayer(id)
+        ? map
+            .queryRenderedFeatures(whole, { layers: [id] })
+            .map((f) => `${f.properties.admin_level}${Number(f.properties.maritime) === 1 ? 'm' : ''}`)
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .sort()
+        : null
+    const visibility = (id) =>
+      map.getLayer(id) ? map.getLayoutProperty(id, 'visibility') ?? 'visible' : 'missing'
+    return {
+      cityVisibility: visibility('boundary-city'),
+      countyVisibility: visibility('boundary-county'),
+      cityLevels: levels('boundary-city'),
+      countyLevels: levels('boundary-county'),
+      zoom: Number(map.getZoom().toFixed(1)),
+    }
+  })
+
+// Zoom out far enough that county lines are published but city limits are not.
+await closePopupIfOpen()
+await page.evaluate(([lat, lng]) => {
+  window.__cbreMap.jumpTo({ center: [lng, lat], zoom: 10, pitch: 0, bearing: 0 })
+}, [COMP.lat, COMP.lng])
+await page.waitForTimeout(2500)
+
+const offState = await boundaryState()
+check('both outlines exist in the style', offState.cityVisibility !== 'missing' && offState.countyVisibility !== 'missing')
+check('both outlines start switched off', offState.cityVisibility === 'none' && offState.countyVisibility === 'none',
+  `city ${offState.cityVisibility}, county ${offState.countyVisibility}`)
+check('nothing is drawn while they are off', offState.cityLevels?.length === 0 && offState.countyLevels?.length === 0,
+  `city ${JSON.stringify(offState.cityLevels)}, county ${JSON.stringify(offState.countyLevels)}`)
+
+await page.locator('.basemap .maptool').click()
+await page.waitForTimeout(250)
+check('the layer switcher offers the boundaries', (await page.locator('.basemap__toggle').count()) === 2)
+await page.locator('.basemap__toggle', { hasText: 'County lines' }).locator('input').check()
+await page.waitForTimeout(1400)
+
+const countyOn = await boundaryState()
+check('county lines switch on', countyOn.countyVisibility === 'visible')
+/*
+ * The county outline has to include the segments carrying a lower level, because that is how a
+ * shared boundary is published. Missing the 4 and 2 segments would leave the county open along
+ * its state edge.
+ */
+check(
+  'the county outline takes in the segments shared with the state and the nation',
+  JSON.stringify(countyOn.countyLevels) === JSON.stringify(['2', '4', '6']),
+  JSON.stringify(countyOn.countyLevels),
+)
+check(
+  'the maritime segment is left in the water',
+  !(countyOn.countyLevels ?? []).some((v) => v.endsWith('m')),
+  JSON.stringify(countyOn.countyLevels),
+)
+check('city limits stay off at this zoom', countyOn.cityVisibility === 'none')
+
+await page.locator('.basemap__toggle', { hasText: 'City limits' }).locator('input').check()
+await page.waitForTimeout(900)
+check('the panel stays open while both are ticked', await page.locator('.basemap__toggle').first().isVisible())
+const bothAtTen = await boundaryState()
+check('city limits switch on', bothAtTen.cityVisibility === 'visible')
+check(
+  'city limits draw nothing below their own zoom',
+  bothAtTen.cityLevels?.length === 0,
+  `zoom ${bothAtTen.zoom}, ${JSON.stringify(bothAtTen.cityLevels)}`,
+)
+
+await page.evaluate(([lat, lng]) => {
+  window.__cbreMap.jumpTo({ center: [lng, lat], zoom: 13, pitch: 0, bearing: 0 })
+}, [COMP.lat, COMP.lng])
+await page.waitForTimeout(2000)
+const bothAtThirteen = await boundaryState()
+check(
+  'city limits appear once the tiles publish them',
+  (bothAtThirteen.cityLevels ?? []).includes('8'),
+  `zoom ${bothAtThirteen.zoom}, ${JSON.stringify(bothAtThirteen.cityLevels)}`,
+)
+check(
+  'a city limit following the county line is still drawn',
+  (bothAtThirteen.cityLevels ?? []).includes('6'),
+  JSON.stringify(bothAtThirteen.cityLevels),
+)
+
+await page.locator('.basemap__toggle', { hasText: 'County lines' }).locator('input').uncheck()
+await page.waitForTimeout(900)
+const countyOff = await boundaryState()
+check('county lines switch off again', countyOff.countyVisibility === 'none')
+check('turning one off leaves the other on', countyOff.cityVisibility === 'visible')
+
+// The choice has to survive a basemap change, which rebuilds the whole style.
+await page.locator('.basemap__option', { hasText: 'Light gray canvas' }).click()
+await page.waitForTimeout(1800)
+const afterStyle = await boundaryState()
+check(
+  'the choice survives a basemap swap',
+  afterStyle.cityVisibility === 'visible' && afterStyle.countyVisibility === 'none',
+  `city ${afterStyle.cityVisibility}, county ${afterStyle.countyVisibility}`,
+)
+
 check('no application errors', appErrors.length === 0, appErrors.slice(0, 3).join(' | '))
 
 await browser.close()
