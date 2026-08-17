@@ -21,6 +21,13 @@ const BASE = 'http://localhost:4173/'
 // Alexandria Center at Kendall in the sample data, and a footprint drawn around it.
 const FIXTURE = { name: 'Alexandria Center at Kendall', lat: 42.3656, lng: -71.086, deals: 4 }
 const FOOTPRINT_DEG = 0.0005
+/**
+ * A second polygon, 1.3 km across, enclosing the building and two more sample addresses.
+ * OpenStreetMap draws medical campuses, city blocks and land parcels exactly like this, and
+ * taking one for a building is what made clicking cover far more ground than the subject
+ * property. Nothing this size may become a target.
+ */
+const CAMPUS_DEG = 0.006
 
 const errors = []
 const failures = []
@@ -30,27 +37,39 @@ function check(name, ok, detail = '') {
   if (!ok) failures.push(name + (detail ? `: ${detail}` : ''))
 }
 
+/** Close the popup if one is open. Clicking a button that is not there just waits out a timeout. */
+async function closePopup(page) {
+  const close = page.locator('.maplibregl-popup-close-button')
+  if (await close.count()) await close.first().click()
+  await page.waitForTimeout(250)
+}
+
 // ------------------------------------------------------- synthetic building tiles
+
+const squareRing = (deg) => [
+  [
+    [FIXTURE.lng - deg, FIXTURE.lat - deg],
+    [FIXTURE.lng + deg, FIXTURE.lat - deg],
+    [FIXTURE.lng + deg, FIXTURE.lat + deg],
+    [FIXTURE.lng - deg, FIXTURE.lat + deg],
+    [FIXTURE.lng - deg, FIXTURE.lat - deg],
+  ],
+]
 
 const tileIndex = geojsonvt(
   {
     type: 'FeatureCollection',
     features: [
+      // The campus first, so the subject building is not simply whatever answers a query first.
+      {
+        type: 'Feature',
+        properties: { render_height: 8, render_min_height: 0 },
+        geometry: { type: 'Polygon', coordinates: squareRing(CAMPUS_DEG) },
+      },
       {
         type: 'Feature',
         properties: { render_height: 46, render_min_height: 0 },
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [FIXTURE.lng - FOOTPRINT_DEG, FIXTURE.lat - FOOTPRINT_DEG],
-              [FIXTURE.lng + FOOTPRINT_DEG, FIXTURE.lat - FOOTPRINT_DEG],
-              [FIXTURE.lng + FOOTPRINT_DEG, FIXTURE.lat + FOOTPRINT_DEG],
-              [FIXTURE.lng - FOOTPRINT_DEG, FIXTURE.lat + FOOTPRINT_DEG],
-              [FIXTURE.lng - FOOTPRINT_DEG, FIXTURE.lat - FOOTPRINT_DEG],
-            ],
-          ],
-        },
+        geometry: { type: 'Polygon', coordinates: squareRing(FOOTPRINT_DEG) },
       },
     ],
   },
@@ -289,8 +308,11 @@ await page.addStyleTag({ content: '.maplibregl-marker{pointer-events:none !impor
 await page.waitForTimeout(1200)
 
 if (markerBox) {
+  const pinX = markerBox.x + markerBox.width / 2
   // A pitched view draws the extrusion upward from its footprint, so aim above the pin base.
-  await page.mouse.click(markerBox.x + markerBox.width / 2, markerBox.y + markerBox.height - 8)
+  const pinY = markerBox.y + markerBox.height - 8
+
+  await page.mouse.click(pinX, pinY)
   await page.waitForTimeout(900)
   const opened = await page.locator('.maplibregl-popup .pop').count()
   check('clicking the building opens its deals', opened === 1, `${opened} popups`)
@@ -306,12 +328,37 @@ if (markerBox) {
       `${await page.locator('.pop__pickitem').count()} of ${FIXTURE.deals}`,
     )
   }
+
+  /*
+   * The building is roughly 80 m wide, the campus polygon around it 1.3 km. This click is
+   * about 190 m east of the pin: outside the building, well inside the campus, and on ground
+   * the tiles say holds no building at all. Nothing may open. Two more sample addresses sit
+   * inside that campus polygon and they must not turn it into a target either.
+   */
+  await closePopup(page)
+  await page.mouse.click(pinX + 150, pinY)
+  await page.waitForTimeout(800)
+  const campusPopups = await page.locator('.maplibregl-popup .pop').count()
+  check(
+    'the campus polygon around the building is not clickable',
+    campusPopups === 0,
+    campusPopups ? `opened ${await page.locator('.pop__title').first().innerText()}` : '',
+  )
+
+  // And the cursor only offers a target over a building, so the campus reads as inert too.
+  await page.mouse.move(pinX + 150, pinY)
+  await page.waitForTimeout(300)
+  const overCampus = await page.locator('.mapcanvas canvas').evaluate((c) => getComputedStyle(c).cursor)
+  await page.mouse.move(pinX, pinY)
+  await page.waitForTimeout(300)
+  const overBuilding = await page.locator('.mapcanvas canvas').evaluate((c) => getComputedStyle(c).cursor)
+  check('cursor offers a target over the building', overBuilding === 'pointer', overBuilding)
+  check('cursor offers nothing over the campus polygon', overCampus !== 'pointer', overCampus)
 } else {
   check('found the fixture marker', false, 'no bounding box')
 }
 await page.addStyleTag({ content: '.maplibregl-marker{pointer-events:auto !important}' })
-await page.locator('.maplibregl-popup-close-button').click().catch(() => {})
-await page.waitForTimeout(200)
+await closePopup(page)
 
 // ------------------------------------------------------------- 7. basemaps
 await page.locator('.basemap .maptool').click()

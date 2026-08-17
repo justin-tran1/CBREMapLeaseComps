@@ -177,3 +177,64 @@ export function footprintKey(geometry: GeoJSON.Geometry): string {
   if (!first) return ''
   return `${first[0].toFixed(6)},${first[1].toFixed(6)}`
 }
+
+/** Ring area on the sphere, in square metres, for a [lng, lat] ring. */
+function lngLatRingAreaSqMeters(ring: number[][]): number {
+  if (ring.length < 3) return 0
+  const toRad = Math.PI / 180
+  let total = 0
+
+  for (let i = 0; i < ring.length; i++) {
+    const [lng1, lat1] = ring[i]
+    const [lng2, lat2] = ring[(i + 1) % ring.length]
+    total += (lng2 - lng1) * toRad * (2 + Math.sin(lat1 * toRad) + Math.sin(lat2 * toRad))
+  }
+
+  return Math.abs((total * EARTH_RADIUS_M * EARTH_RADIUS_M) / 2)
+}
+
+/** Footprint area of a building polygon, holes subtracted. */
+export function geometryAreaSqMeters(geometry: GeoJSON.Geometry): number {
+  const polygonArea = (rings: number[][][]): number =>
+    rings.reduce((sum, ring, i) => sum + (i === 0 ? lngLatRingAreaSqMeters(ring) : -lngLatRingAreaSqMeters(ring)), 0)
+
+  if (geometry.type === 'Polygon') return Math.max(0, polygonArea(geometry.coordinates))
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.reduce((sum, rings) => sum + Math.max(0, polygonArea(rings)), 0)
+  }
+  return 0
+}
+
+/**
+ * Choose the footprint that actually belongs to a comp.
+ *
+ * Two things go wrong without this. Screen-space picking against extruded buildings can
+ * return a neighbour whose facade happens to cover the queried pixel, so a candidate is
+ * only accepted when it geographically contains the point. And OpenStreetMap frequently
+ * maps a campus or a whole block as one polygon with the individual buildings nested
+ * inside it, so the smallest containing footprint is the subject building.
+ *
+ * A footprint larger than `maxAreaSqMeters` is refused outright rather than highlighted,
+ * because a polygon that big is a campus or a land parcel, not the building a suite sits in.
+ */
+export function pickFootprintForPoint<T extends { geometry: GeoJSON.Geometry }>(
+  candidates: readonly T[],
+  lng: number,
+  lat: number,
+  maxAreaSqMeters: number,
+): T | null {
+  let best: T | null = null
+  let bestArea = Infinity
+
+  for (const candidate of candidates) {
+    if (!pointInGeometry(lng, lat, candidate.geometry)) continue
+    const area = geometryAreaSqMeters(candidate.geometry)
+    if (area <= 0 || area > maxAreaSqMeters) continue
+    if (area < bestArea) {
+      best = candidate
+      bestArea = area
+    }
+  }
+
+  return best
+}

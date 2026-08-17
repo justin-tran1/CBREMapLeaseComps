@@ -104,8 +104,13 @@ and `Longitude` columns to the sheet and the tool skips geocoding entirely.
 
 The map opens tilted over aerial imagery with buildings extruded in 3D. **Buildings that
 hold a deal are picked out in CBRE green; click one and its deals open.** Everything else
-stays neutral grey. Buildings appear once you pass street level, which is where the
-footprints exist in the underlying data.
+stays neutral grey and is not clickable. Buildings appear once you pass street level, which
+is where the footprints exist in the underlying data.
+
+The green solid is the whole of the target: the click area is that one building's footprint
+and nothing around it. Where a deal's building cannot be identified with confidence, no
+building is coloured in and the pin is the way to the deal, because colouring in a guess
+would put the deal on a neighbour.
 
 Pins work the same way and stay visible at every zoom. Both carry a count when an address
 holds several deals, and opening one of those shows a picker first. Choose a deal to see
@@ -212,17 +217,17 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 250 assertions
+npm run test:units               # terminal 2, 260 assertions
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 71 end-to-end checks
+npm run test:e2e                 # terminal 2, 74 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
 ```
 
 `tests/units.mjs` covers value coercion, header matching, geometry, building-footprint
-containment, draw geometry, the brand palette, formatting, filtering, aggregation, and the
+containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
 practice's export schema land on the right field. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
@@ -242,8 +247,26 @@ imagery from Esri. Both are free and need no key. If a network blocks the buildi
 the map says so and carries on with pins, filters and the dashboard intact.
 
 Matching a comp to its building runs per comp rather than per building: each visible deal
-is projected to the screen and the footprint under that one point is queried, so the work
+is projected to the screen and the footprints under that one point are queried, so the work
 scales with the deals on screen instead of the buildings in view.
+
+Three rules decide which footprint a comp belongs to, and together they are what keeps the
+click area on the subject building:
+
+- **The query goes to a flat layer, never the 3D one.** Hit-testing an extrusion tests the
+  whole solid, walls and roof included, so on a tilted map the building whose facade covers
+  a pixel answers for ground it does not stand on, and the footprint genuinely under that
+  ground can be hidden behind it. An invisible flat copy of the building layer answers in
+  ground space, where a comp's coordinate lives. It is never drawn, only queried.
+- **The smallest footprint containing the coordinate wins.** OpenStreetMap routinely maps a
+  medical campus or a whole block as one polygon with the individual buildings nested inside
+  it, and both contain the comp. The inner one is the building.
+- **Nothing above 40,000 m² is accepted**, which is a 200 m square: enough for a large
+  hospital podium and not for a campus or a land parcel.
+
+A footprint that fails these tests is left grey rather than approximated, and clicks only
+ever go to footprints that passed. `tests/smoke.mjs` puts a 1.3 km campus polygon around the
+fixture building and asserts that ground 190 m away opens nothing.
 
 ```
 src/

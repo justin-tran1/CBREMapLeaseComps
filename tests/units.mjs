@@ -246,6 +246,42 @@ const results = await page.evaluate(async () => {
   truthy('footprintKey separates buildings', geometry.footprintKey(footprint) !== geometry.footprintKey(square(-71.05, 42.3, 0.0005)))
   eq('footprintKey ignores non-polygons', geometry.footprintKey({ type: 'Point', coordinates: [0, 0] }), '')
 
+  // ------------------------------- choosing the right footprint for a comp
+  const areaOf = geometry.geometryAreaSqMeters
+  const smallFootprint = square(-71.086, 42.3656, 0.0005)  // one building, ~9,100 m2
+  const blockFootprint = square(-71.086, 42.3656, 0.001)   // still under the cap, ~36,500 m2
+  const campusFootprint = square(-71.086, 42.3656, 0.004)  // a campus, way over the cap
+  const neighbourFootprint = square(-71.0845, 42.3656, 0.0005)
+
+  const sidesArea =
+    geometry.haversineMeters(42.3656, -71.0865, 42.3656, -71.0855) *
+    geometry.haversineMeters(42.3651, -71.086, 42.3661, -71.086)
+  truthy('footprint area agrees with its own side lengths',
+    Math.abs(areaOf(smallFootprint) - sidesArea) / sidesArea < 0.01,
+    `${areaOf(smallFootprint)} vs ${sidesArea}`)
+  truthy('a courtyard is subtracted from the footprint area',
+    areaOf(donut) < areaOf({ type: 'Polygon', coordinates: [donut.coordinates[0]] }))
+  truthy('a multipolygon adds its parts', Math.abs(areaOf({
+    type: 'MultiPolygon',
+    coordinates: [smallFootprint.coordinates, neighbourFootprint.coordinates],
+  }) - 2 * areaOf(smallFootprint)) / areaOf(smallFootprint) < 0.01)
+  eq('a non-polygon has no area', areaOf({ type: 'Point', coordinates: [0, 0] }), 0)
+
+  const pick = (candidates) => geometry.pickFootprintForPoint(candidates, -71.086, 42.3656, 40_000)
+  eq('the nested building beats the campus polygon around it',
+    pick([{ id: 'campus', geometry: campusFootprint }, { id: 'building', geometry: smallFootprint }])?.id,
+    'building')
+  eq('the smallest containing footprint wins whatever the order',
+    pick([{ id: 'small', geometry: smallFootprint }, { id: 'block', geometry: blockFootprint }])?.id, 'small')
+  eq('a footprint that does not contain the comp is refused',
+    pick([{ id: 'neighbour', geometry: neighbourFootprint }]), null)
+  eq('a campus-sized polygon is refused rather than highlighted',
+    pick([{ id: 'campus', geometry: campusFootprint }]), null)
+  eq('the chosen candidate comes back intact',
+    pick([{ id: 'building', geometry: smallFootprint, properties: { render_height: 40 } }])?.properties.render_height,
+    40)
+  eq('nothing to choose from yields nothing', pick([]), null)
+
   // ------------------------------------------------------- draw geometry
   const ring = draw.circleRing(42.3656, -71.086, 500)
   truthy('circle ring closes on itself', ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1])

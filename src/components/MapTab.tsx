@@ -16,7 +16,15 @@ import {
 import { useApp } from '../state/AppContext'
 import { BUILDING_SOURCE_ID, buildStyle, getBasemap, LAYER, SOURCE } from '../lib/basemaps'
 import { markerColor } from '../lib/palette'
-import { footprintKey, pointInGeometry, shapeAreaLabel, shapeBounds, shapeLabel } from '../lib/geometry'
+import {
+  footprintKey,
+  haversineMeters,
+  pickFootprintForPoint,
+  pointInGeometry,
+  shapeAreaLabel,
+  shapeBounds,
+  shapeLabel,
+} from '../lib/geometry'
 import { BasemapSwitcher } from './BasemapSwitcher'
 import { MapSearch } from './MapSearch'
 import { PropertyPopup } from './PropertyPopup'
@@ -43,6 +51,21 @@ const PITCH_3D = 55
 const BUILDING_MIN_ZOOM = 15
 /** Cap the per-idle building sweep so a dense viewport cannot stall the frame. */
 const BUILDING_MATCH_LIMIT = 400
+/**
+ * Largest footprint that can plausibly be the one building a suite sits in: 40,000 m² is a
+ * 200 m square, which covers a large hospital podium and nothing bigger. Above it the polygon
+ * is a campus, a city block or a land parcel, and OpenStreetMap has plenty of all three. Such
+ * a polygon is left alone rather than highlighted, because making it clickable is exactly the
+ * behaviour of covering far more ground than the subject building.
+ */
+const BUILDING_MAX_FOOTPRINT_SQ_M = 40_000
+/**
+ * Half-width, in pixels, of the box the footprint search casts around a comp's coordinate.
+ * A single-pixel query is brittle: rounding, or a coordinate landing on a shared wall, can
+ * miss the polygon the point is genuinely inside. Widening the net costs nothing in accuracy
+ * because every candidate still has to contain the coordinate to be accepted.
+ */
+const FOOTPRINT_QUERY_PAD_PX = 4
 
 interface Selection {
   siteId: string
@@ -338,11 +361,15 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
   // --------------------------------------------- buildings holding comps
 
   /**
-   * Colour in the buildings that hold a deal.
+   * Work out which building each comp sits in, and hand that set of footprints to the map.
    *
    * Rather than sweeping every footprint in view and testing it against every comp, each
    * visible comp is projected to the screen and queried at that one point. That keeps the
    * work proportional to the number of comps on screen rather than the number of buildings.
+   *
+   * The footprints this produces are the only ones the map ever makes clickable, so a comp
+   * whose building cannot be identified with confidence contributes nothing here and is
+   * reached through its pin instead. Guessing would put the deal on a neighbour.
    */
   const runBuildingSweep = useCallback(() => {
     const map = mapRef.current
@@ -351,7 +378,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     const source = map.getSource(SOURCE.buildingsComps) as GeoJSONSource | undefined
     if (!source) return
 
-    if (!threeD || map.getZoom() < BUILDING_MIN_ZOOM || !map.getLayer(LAYER.buildings)) {
+    if (!threeD || map.getZoom() < BUILDING_MIN_ZOOM || !map.getLayer(LAYER.buildingPick)) {
       source.setData(EMPTY_FC)
       return
     }
@@ -366,15 +393,24 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
       if (!bounds.contains([site.lon, site.lat] as LngLatLike)) continue
       checked++
 
-      const point = map.project([site.lon, site.lat])
+      const { x, y } = map.project([site.lon, site.lat])
+      const pad = FOOTPRINT_QUERY_PAD_PX
       let hits: MapGeoJSONFeature[]
       try {
-        hits = map.queryRenderedFeatures(point, { layers: [LAYER.buildings] })
+        // The flat pick layer, never the extrusion, and a small box rather than one pixel.
+        hits = map.queryRenderedFeatures(
+          [
+            [x - pad, y - pad],
+            [x + pad, y + pad],
+          ],
+          { layers: [LAYER.buildingPick] },
+        )
       } catch {
         continue
       }
 
-      const hit = hits.find((f) => pointInGeometry(site.lon, site.lat, f.geometry)) ?? hits[0]
+      // Must contain the coordinate, smallest wins, and nothing campus-sized is accepted.
+      const hit = pickFootprintForPoint(hits, site.lon, site.lat, BUILDING_MAX_FOOTPRINT_SQ_M)
       if (!hit) continue
 
       const key = footprintKey(hit.geometry)
@@ -443,36 +479,63 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     )
   }, [])
 
-  /** Every comp that sits inside the given footprint. */
-  const sitesInFootprint = useCallback((geometry: GeoJSON.Geometry): Site[] => {
-    const inside: Site[] = []
-    for (const site of siteIndexRef.current.values()) {
-      if (pointInGeometry(site.lon, site.lat, geometry)) inside.push(site)
-    }
-    return inside
-  }, [])
+  /**
+   * The comp behind a clicked footprint.
+   *
+   * The sweep stamps every footprint it emits with the site that claimed it, which answers
+   * this outright almost every time. Two comps that geocoded to different points inside one
+   * building do share a footprint, and there the click position settles it.
+   */
+  const siteForFootprint = useCallback(
+    (feature: MapGeoJSONFeature, atLng: number, atLat: number): Site | null => {
+      const inside: Site[] = []
+      for (const site of siteIndexRef.current.values()) {
+        if (pointInGeometry(site.lon, site.lat, feature.geometry)) inside.push(site)
+      }
 
+      if (inside.length === 0) {
+        const stamped = feature.properties?.siteId
+        return typeof stamped === 'string' ? siteIndexRef.current.get(stamped) ?? null : null
+      }
+
+      return inside.reduce((best, site) =>
+        haversineMeters(site.lat, site.lon, atLat, atLng) <
+        haversineMeters(best.lat, best.lon, atLat, atLng)
+          ? site
+          : best,
+      )
+    },
+    [],
+  )
+
+  /*
+   * Only the vetted footprints are clickable.
+   *
+   * Querying every building in view and then asking which comps fall inside the answer is
+   * what made the target so much larger than the building: a campus or block polygon holding
+   * one comp turned the whole campus into a hit area. The comps layer already holds one
+   * footprint per identified building, so hit-testing that layer alone makes the target
+   * exactly the green solid on screen, which is the building the user is aiming at.
+   */
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
 
-    const buildingLayers = () =>
-      [LAYER.buildingsComps, LAYER.buildings].filter((id) => map.getLayer(id))
+    const pickBuilding = (event: MapMouseEvent): MapGeoJSONFeature | null => {
+      if (!map.getLayer(LAYER.buildingsComps)) return null
+      const hits = map.queryRenderedFeatures(event.point, { layers: [LAYER.buildingsComps] })
+      // Extrusion hits come back nearest-camera first, so this is the one being looked at.
+      return hits[0] ?? null
+    }
 
     const onClick = (event: MapMouseEvent) => {
       if (drawMode) return
-      const layers = buildingLayers()
-      if (layers.length === 0) return
-
-      const hits = map.queryRenderedFeatures(event.point, { layers })
-      const building = hits[0]
+      const building = pickBuilding(event)
       if (!building) return
 
-      const inside = sitesInFootprint(building.geometry)
-      if (inside.length === 0) return
+      const site = siteForFootprint(building, event.lngLat.lng, event.lngLat.lat)
+      if (!site) return
 
-      // Several comps in one tower already share a marker, so this is normally one site.
-      const site = inside.sort((a, b) => b.deals.length - a.deals.length)[0]
       setActiveFootprint(building)
       openSite(site)
     }
@@ -480,18 +543,13 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     let hoverKey = ''
     const onMove = (event: MapMouseEvent) => {
       if (drawMode) return
-      const layers = buildingLayers()
-      if (layers.length === 0) return
-
-      const hits = map.queryRenderedFeatures(event.point, { layers })
-      const building = hits[0]
+      const building = pickBuilding(event)
       const key = building ? footprintKey(building.geometry) : ''
       if (key === hoverKey) return
       hoverKey = key
 
-      const hasComps = building ? sitesInFootprint(building.geometry).length > 0 : false
-      map.getCanvas().style.cursor = hasComps ? 'pointer' : ''
-      if (!selectionRef.current) setActiveFootprint(hasComps ? building : null)
+      map.getCanvas().style.cursor = building ? 'pointer' : ''
+      if (!selectionRef.current) setActiveFootprint(building)
     }
 
     map.on('click', onClick)
@@ -499,8 +557,9 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     return () => {
       map.off('click', onClick)
       map.off('mousemove', onMove)
+      map.getCanvas().style.cursor = ''
     }
-  }, [ready, drawMode, openSite, sitesInFootprint, setActiveFootprint])
+  }, [ready, drawMode, openSite, siteForFootprint, setActiveFootprint])
 
   // ---------------------------------------------------------------- popup
 

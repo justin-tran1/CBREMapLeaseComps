@@ -121,6 +121,7 @@ export const LAYER = {
   base: 'basemap',
   baseLabels: 'basemap-labels',
   buildings: 'buildings-3d',
+  buildingPick: 'buildings-pick',
   buildingsComps: 'buildings-with-comps',
   buildingsActive: 'buildings-active',
   drawFill: 'draw-fill',
@@ -194,6 +195,22 @@ export function buildStyle(basemap: BasemapDef, dark: boolean): StyleSpecificati
   const buildingDark = basemap.dark === true || dark
 
   style.layers.push(
+    /*
+     * Never drawn, only queried. Hit-testing an extrusion tests the whole solid, walls and
+     * roof included, so at a tilt the building whose facade covers a pixel answers for
+     * ground the building does not stand on, and the footprint genuinely under that ground
+     * can be hidden behind it. A flat fill answers in ground space, which is where a comp's
+     * coordinate lives. MapLibre skips drawing a fill at zero opacity but still indexes it,
+     * so this costs a query target and no pixels.
+     */
+    {
+      id: LAYER.buildingPick,
+      type: 'fill',
+      source: BUILDING_SOURCE_ID,
+      'source-layer': BUILDING_SOURCE_LAYER,
+      minzoom: 14,
+      paint: { 'fill-opacity': 0 },
+    },
     // Every building in view, so the city reads as a 3D scene rather than flat imagery.
     {
       id: LAYER.buildings,
