@@ -12,12 +12,42 @@ import email.utils
 import json
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import wa_healthcare_news_scraper as scraper
 
 NOW = datetime.now(timezone.utc)
+
+ARTICLE_PAGE = b"""<!DOCTYPE html><html><head><title>t</title>
+<script>var x = "junk that should never appear";</script></head><body>
+<nav><p>Home News Sports Subscribe to our newsletter for daily updates</p></nav>
+<article>
+<h1>MultiCare opens new medical office building in Tacoma</h1>
+<p>MultiCare Health System opened a new 60,000 square foot medical office
+building in Tacoma on Monday, expanding outpatient care capacity across
+Pierce County for thousands of patients.</p>
+<p>The $150 million project took two years to build and will house primary
+care, cardiology and imaging services under one roof for the health system.</p>
+<p>Hospital officials said the building will add 120 jobs over the next
+year as clinics open in phases through the spring.</p>
+</article>
+<footer><p>Copyright \xc2\xa9 2026 Example Media. All rights reserved. Privacy
+Policy and Terms of Use apply to this site always.</p></footer>
+</body></html>"""
+
+CONFLICTING_PAGE = b"""<html><body><article>
+<p>MultiCare cut the ribbon on its newest Tacoma medical office building on
+Monday morning, a project company executives called a major expansion.</p>
+<p>The project cost $120 million according to figures the health system
+shared with reporters during the opening event this week.</p>
+</article></body></html>"""
+
+GOOGLE_REDIRECT_PAGE = b"""<html><head><title>Opening</title></head><body>
+<c-wiz><a href="https://news.google.com/home">Google News</a>
+<a href="https://www.example-news.com/multicare-tacoma">Open article</a>
+</c-wiz></body></html>"""
 
 
 def rfc822(dt):
@@ -438,6 +468,417 @@ class TestUrlBuilders(unittest.TestCase):
         args = scraper.parse_args(["--extra-query", '"Providence" layoffs'])
         sources = scraper.build_source_list(args)
         self.assertTrue(any("extra-1" in s[0] for s in sources))
+
+
+class TestArticleExtraction(unittest.TestCase):
+    def test_extracts_paragraphs_drops_boilerplate(self):
+        text, links = scraper.extract_article_text(
+            ARTICLE_PAGE.decode("utf-8"))
+        self.assertIn("60,000 square foot", text)
+        self.assertIn("$150 million", text)
+        self.assertNotIn("junk that should never appear", text)
+        self.assertNotIn("newsletter", text)
+        self.assertNotIn("All rights reserved", text)
+
+    def test_resolve_google_news_target(self):
+        html_text = GOOGLE_REDIRECT_PAGE.decode("utf-8")
+        _text, links = scraper.extract_article_text(html_text)
+        target = scraper.resolve_google_news_target(html_text, links)
+        self.assertEqual(target,
+                         "https://www.example-news.com/multicare-tacoma")
+
+    def test_fetch_article_direct(self):
+        def fetcher(url, **kwargs):
+            return ARTICLE_PAGE
+
+        text, final_url, status = scraper.fetch_article_text(
+            "https://www.example-news.com/a", fetcher=fetcher)
+        self.assertEqual(status, "ok")
+        self.assertIn("MultiCare", text)
+
+    def test_fetch_article_google_redirect(self):
+        def fetcher(url, **kwargs):
+            if "news.google.com" in url:
+                return GOOGLE_REDIRECT_PAGE
+            return ARTICLE_PAGE
+
+        text, final_url, status = scraper.fetch_article_text(
+            "https://news.google.com/rss/articles/abc", fetcher=fetcher)
+        self.assertEqual(status, "ok")
+        self.assertEqual(final_url,
+                         "https://www.example-news.com/multicare-tacoma")
+        self.assertIn("$150 million", text)
+
+    def test_fetch_article_failure_is_unavailable(self):
+        def fetcher(url, **kwargs):
+            raise OSError("offline")
+
+        text, final_url, status = scraper.fetch_article_text(
+            "https://www.example-news.com/a", fetcher=fetcher)
+        self.assertEqual(status, "unavailable")
+        self.assertEqual(text, "")
+
+
+class TestSummarization(unittest.TestCase):
+    def test_key_points_are_verbatim_sentences(self):
+        text, _links = scraper.extract_article_text(
+            ARTICLE_PAGE.decode("utf-8"))
+        points = scraper.summarize_key_points(
+            "MultiCare opens new medical office building in Tacoma", text)
+        self.assertTrue(1 <= len(points) <= 3)
+        for point in points:
+            self.assertIn(point.rstrip("."), text.replace("\n", " "))
+        joined = " ".join(points)
+        self.assertIn("$150 million", joined)
+
+    def test_no_text_no_points(self):
+        self.assertEqual(scraper.summarize_key_points("Title", ""), [])
+
+
+class TestFacts(unittest.TestCase):
+    def test_money_normalization(self):
+        self.assertIn(150.0, scraper.extract_facts(
+            "raised $150 million for the project")["money"])
+        self.assertIn(150.0, scraper.extract_facts("a $150M round")["money"])
+        self.assertIn(1200.0, scraper.extract_facts(
+            "the $1.2B campus")["money"])
+        self.assertIn(0.5, scraper.extract_facts(
+            "a $500,000 grant")["money"])
+
+    def test_headcount_sqft_pct(self):
+        facts = scraper.extract_facts(
+            "lays off 120 workers at the 60,000 square foot clinic, "
+            "an 8.5 percent reduction")
+        self.assertIn(120, facts["headcount"])
+        self.assertIn(60000, facts["sqft"])
+        self.assertIn(8.5, facts["pct"])
+
+    def test_percent_not_headcount(self):
+        facts = scraper.extract_facts("MultiCare cuts 15% of staff")
+        self.assertIn(15.0, facts["pct"])
+        self.assertNotIn(15, facts["headcount"])
+
+    def test_compare_conflicting_money(self):
+        a = scraper.extract_facts("a $150 million project")
+        b = scraper.extract_facts("the $120 million project")
+        notes = scraper.compare_facts(a, b, "SourceA", "SourceB")
+        self.assertEqual(len(notes), 1)
+        self.assertIn("dollar amount differs", notes[0])
+        self.assertIn("$150M", notes[0])
+        self.assertIn("$120M", notes[0])
+
+    def test_compare_compatible_and_disjoint(self):
+        a = scraper.extract_facts("a $1.2 billion project")
+        b = scraper.extract_facts("a $1,200 million project")
+        self.assertEqual(scraper.compare_facts(a, b, "A", "B"), [])
+        c = scraper.extract_facts("adds 300 jobs")
+        self.assertEqual(scraper.compare_facts(a, c, "A", "C"), [])
+
+
+class TestClusteringConsistency(unittest.TestCase):
+    def _art(self, title, source, url, summary="", hours_ago=1, score=5):
+        art = scraper.Article(
+            title=title, url=url, source=source, summary=summary,
+            published=NOW - timedelta(hours=hours_ago), score=score)
+        art.topic_hits = [h for h in ("multicare",)
+                          if h in title.lower() or h in summary.lower()]
+        return art
+
+    def test_corroborated_story(self):
+        a = self._art("MultiCare opens new medical office building in "
+                      "Tacoma", "Source A", "https://a.com/1",
+                      "The $150 million project.", score=9)
+        b = self._art("MultiCare opens new medical office building in "
+                      "Tacoma, Wash.", "Source B", "https://b.com/2",
+                      "A $150 million project.")
+        clusters = scraper.cluster_articles([a, b])
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0].corroborators), 1)
+        verdict = scraper.assess_consistency(clusters[0])
+        self.assertEqual(verdict["verdict"], "corroborated")
+        self.assertIn("Source A", verdict["details"][0])
+
+    def test_discrepancy_story(self):
+        a = self._art("MultiCare opens new medical office building in "
+                      "Tacoma", "Source A", "https://a.com/1",
+                      "The $150 million project.", score=9)
+        b = self._art("New MultiCare medical office building opens in "
+                      "Tacoma", "Source B", "https://b.com/2",
+                      "The $120 million project.")
+        clusters = scraper.cluster_articles([a, b])
+        self.assertEqual(len(clusters), 1)
+        verdict = scraper.assess_consistency(clusters[0])
+        self.assertEqual(verdict["verdict"], "discrepancy")
+        self.assertIn("dollar amount differs", verdict["details"][0])
+
+    def test_single_source_story(self):
+        a = self._art("Fred Hutch launches cancer vaccine clinical trial",
+                      "KUOW", "https://a.com/1")
+        clusters = scraper.cluster_articles([a])
+        verdict = scraper.assess_consistency(clusters[0])
+        self.assertEqual(verdict["verdict"], "single-source")
+        self.assertIn("KUOW", verdict["details"][0])
+
+    def test_same_source_duplicate_not_corroborator(self):
+        a = self._art("MultiCare opens new medical office building in "
+                      "Tacoma", "Source A", "https://a.com/1", score=9)
+        b = self._art("MultiCare opens new medical office building in "
+                      "Tacoma", "Source A", "https://a.com/2")
+        clusters = scraper.cluster_articles([a, b])
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].corroborators, [])
+
+    def test_unrelated_stories_stay_apart(self):
+        a = self._art("MultiCare opens new medical office building in "
+                      "Tacoma", "Source A", "https://a.com/1")
+        b = self._art("MultiCare names new chief financial officer",
+                      "Source B", "https://b.com/2")
+        clusters = scraper.cluster_articles([a, b])
+        self.assertEqual(len(clusters), 2)
+
+
+class TestDigest(unittest.TestCase):
+    def _grouped(self):
+        a = scraper.Article(
+            title="MultiCare opens medical office building in Tacoma",
+            url="https://a.com/1", source="Source A",
+            summary="The $150 million, 60,000 square foot project.",
+            published=NOW - timedelta(hours=1), score=9,
+            category="medical_office")
+        a.consistency = {"verdict": "corroborated", "details": ["ok"]}
+        b = scraper.Article(
+            title="Providence lays off 120 workers at Everett hospital",
+            url="https://b.com/2", source="Source B",
+            published=NOW - timedelta(hours=2), score=7,
+            category="workforce")
+        b.consistency = {"verdict": "discrepancy",
+                         "details": ["headcount differs: A reports 120, "
+                                     "B reports 150"]}
+        return [("medical_office", "Medical Office", [a]),
+                ("workforce", "Workforce", [b])]
+
+    def test_digest_contents(self):
+        digest = scraper.build_digest(self._grouped(), 24)
+        self.assertIn("2 qualifying articles", digest["overview"])
+        self.assertIn("1 story is corroborated", digest["overview"])
+        self.assertEqual(len(digest["category_lines"]), 2)
+        self.assertIn("Medical Office (1)", digest["category_lines"][0])
+        notables = " | ".join(digest["notables"])
+        self.assertIn("$150M", notables)
+        self.assertIn("60,000 sq. ft.", notables)
+        self.assertIn("Verify before use", notables)
+
+    def test_empty_digest(self):
+        digest = scraper.build_digest([], 24)
+        self.assertIn("No qualifying", digest["overview"])
+
+
+class TestAIAssist(unittest.TestCase):
+    def test_parse_json_reply(self):
+        self.assertEqual(scraper.parse_json_reply('[{"id": 0}]'),
+                         [{"id": 0}])
+        self.assertEqual(
+            scraper.parse_json_reply('```json\n{"a": 1}\n```'), {"a": 1})
+        self.assertEqual(
+            scraper.parse_json_reply('Sure! Here it is: [1, 2]'), [1, 2])
+        with self.assertRaises(scraper.AIError):
+            scraper.parse_json_reply("no json here")
+
+    def test_claude_complete_and_fallbacks(self):
+        captured = {}
+
+        def poster(url, payload, headers, timeout=None, ctx=None):
+            captured["payload"] = payload
+            captured["headers"] = headers
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "hello"}]}
+
+        text = scraper.claude_complete("hi", "claude-opus-5", "key",
+                                       poster=poster)
+        self.assertEqual(text, "hello")
+        self.assertEqual(captured["payload"]["fallbacks"], "default")
+        self.assertIn("anthropic-beta", captured["headers"])
+        self.assertEqual(captured["payload"]["output_config"]["effort"],
+                         "low")
+
+        def haiku_poster(url, payload, headers, timeout=None, ctx=None):
+            captured["haiku_payload"] = payload
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "ok"}]}
+
+        scraper.claude_complete("hi", "claude-haiku-4-5", "key",
+                                poster=haiku_poster)
+        self.assertNotIn("fallbacks", captured["haiku_payload"])
+
+    def test_claude_complete_refusal(self):
+        def poster(url, payload, headers, timeout=None, ctx=None):
+            return {"stop_reason": "refusal", "content": []}
+
+        with self.assertRaises(scraper.AIError):
+            scraper.claude_complete("hi", "claude-opus-5", "key",
+                                    poster=poster)
+
+    def test_ai_enrich_articles(self):
+        art = scraper.Article(
+            title="MultiCare opens medical office building",
+            url="https://a.com/1", source="Source A",
+            published=NOW - timedelta(hours=1), score=9)
+        art.article_text = "Some article text about the project."
+        art.consistency = {"verdict": "corroborated", "details": ["ok"]}
+        cluster = scraper.Cluster(primary=art)
+
+        def poster(url, payload, headers, timeout=None, ctx=None):
+            reply = json.dumps([{
+                "id": 0,
+                "key_points": ["Point one about the building.",
+                               "Point two about cost."],
+                "consistency_note": "Outlets differ on the opening date.",
+            }])
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": reply}]}
+
+        scraper.ai_enrich_articles([cluster], "claude-opus-5", "key", 10,
+                                   poster=poster)
+        self.assertEqual(len(art.key_points), 2)
+        self.assertEqual(art.summary_method, "ai")
+        self.assertEqual(art.consistency["verdict"], "discrepancy")
+        self.assertTrue(any("AI cross-check" in d
+                            for d in art.consistency["details"]))
+
+    def test_ai_write_digest(self):
+        digest = {"method": "template", "overview": "old",
+                  "category_lines": ["x"], "notables": ["Verify before y"]}
+
+        def poster(url, payload, headers, timeout=None, ctx=None):
+            reply = json.dumps({"overview": "A new overview.",
+                                "takeaways": ["Takeaway one."]})
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": reply}]}
+
+        out = scraper.ai_write_digest(digest, [], 24, "claude-opus-5",
+                                      "key", poster=poster)
+        self.assertEqual(out["overview"], "A new overview.")
+        self.assertEqual(out["method"], "ai")
+        self.assertIn("Takeaway one.", out["notables"])
+        self.assertIn("Verify before y", out["notables"])
+
+    def test_run_with_ai_but_no_key_falls_back(self):
+        def fetcher(url, **kwargs):
+            if "news.google.com" in url:
+                return GNEWS_FIXTURE
+            raise OSError("offline")
+
+        args = scraper.parse_args(
+            ["--delay", "0", "--skip-direct-feeds", "--ai",
+             "--no-fetch-articles"])
+        with unittest.mock.patch.dict("os.environ",
+                                      {"ANTHROPIC_API_KEY": ""}):
+            grouped, flat, meta = scraper.run(args, fetcher=fetcher)
+        self.assertFalse(meta["ai_used"])
+        self.assertGreater(meta["kept"], 0)
+        self.assertEqual(meta["digest"]["method"], "template")
+
+
+class TestEnrichedPipeline(unittest.TestCase):
+    def _fetcher(self, url, **kwargs):
+        if "news.google.com/rss/search" in url:
+            return GNEWS_FIXTURE
+        if "statnews.com/feed" in url or url.endswith("statnews.com/feed/"):
+            return WORDPRESS_FIXTURE
+        if "news.google.com/rss/articles" in url:
+            return GOOGLE_REDIRECT_PAGE
+        if "example-news.com" in url:
+            return ARTICLE_PAGE
+        if "statnews.com/2026" in url:
+            return CONFLICTING_PAGE
+        raise OSError("offline")
+
+    def test_end_to_end_enrichment(self):
+        args = scraper.parse_args(["--delay", "0", "--engines", "google"])
+        grouped, flat, meta = scraper.run(args, fetcher=self._fetcher)
+        self.assertEqual(meta["kept"], 5)
+        mo = next(a for a in flat if "MultiCare opens" in a.title)
+        # The Google redirect resolved to the real article URL.
+        self.assertEqual(mo.url,
+                         "https://www.example-news.com/multicare-tacoma")
+        self.assertEqual(mo.text_status, "ok")
+        self.assertTrue(mo.key_points)
+        # MultiCare story ran in two outlets -> corroborated.
+        self.assertEqual(mo.consistency["verdict"], "corroborated")
+        self.assertEqual(len(mo.corroborators), 1)
+        self.assertEqual(mo.corroborators[0]["source"], "The News Tribune")
+        # Fetch stats and digest are populated.
+        self.assertGreater(meta["fetch_stats"]["ok"], 0)
+        self.assertIn("qualifying articles", meta["digest"]["overview"])
+        counts = meta["consistency_counts"]
+        self.assertEqual(counts["corroborated"], 1)
+        self.assertEqual(counts["single-source"], 4)
+
+    def test_reports_include_new_sections(self):
+        args = scraper.parse_args(["--delay", "0", "--engines", "google"])
+        with tempfile.TemporaryDirectory() as tmp:
+            args = scraper.parse_args(
+                ["--delay", "0", "--engines", "google", "--out-dir", tmp])
+            grouped, flat, meta = scraper.run(args, fetcher=self._fetcher)
+            written = scraper.write_reports(grouped, flat, meta, args)
+            html_text = next(p for p in written
+                             if p.suffix == ".html").read_text("utf-8")
+            self.assertIn("Daily Digest", html_text)
+            self.assertIn("Corroborated", html_text)
+            self.assertIn("Single source", html_text)
+            self.assertIn("Also reported by", html_text)
+            self.assertIn("class='points'", html_text)
+            md_text = next(p for p in written
+                           if p.suffix == ".md").read_text("utf-8")
+            self.assertIn("## Daily Digest", md_text)
+            self.assertIn("Consistency: **[", md_text)
+            data = json.loads(next(p for p in written
+                                   if p.suffix == ".json").read_text("utf-8"))
+            self.assertIn("digest", data)
+            self.assertIn("consistency_counts", data)
+            self.assertTrue(all("key_points" in a for a in data["articles"]))
+
+    def test_discrepancy_flagged_end_to_end(self):
+        # Two outlets, same story, $150M vs $120M -> discrepancy chip.
+        def fetcher(url, **kwargs):
+            if "news.google.com/rss/search" in url:
+                items = (
+                    "<item><title>MultiCare opens new medical office "
+                    "building in Tacoma - Source A</title>"
+                    "<link>https://www.example-news.com/multicare-tacoma"
+                    "</link><pubDate>"
+                    + email.utils.format_datetime(NOW - timedelta(hours=1))
+                    + "</pubDate><description>The $150 million project."
+                    "</description><source url=\"https://sourcea.com\">"
+                    "Source A</source></item>"
+                    "<item><title>New MultiCare medical office building "
+                    "opens in Tacoma - Source B</title>"
+                    "<link>https://www.statnews.com/2026/other</link>"
+                    "<pubDate>"
+                    + email.utils.format_datetime(NOW - timedelta(hours=2))
+                    + "</pubDate><description>The $120 million project."
+                    "</description><source url=\"https://sourceb.com\">"
+                    "Source B</source></item>")
+                return ("<?xml version=\"1.0\"?><rss version=\"2.0\">"
+                        "<channel>" + items + "</channel></rss>"
+                        ).encode("utf-8")
+            if "example-news.com" in url:
+                return ARTICLE_PAGE
+            if "statnews.com" in url:
+                return CONFLICTING_PAGE
+            raise OSError("offline")
+
+        args = scraper.parse_args(
+            ["--delay", "0", "--engines", "google", "--skip-direct-feeds"])
+        grouped, flat, meta = scraper.run(args, fetcher=fetcher)
+        self.assertEqual(len(flat), 1)
+        art = flat[0]
+        self.assertEqual(art.consistency["verdict"], "discrepancy")
+        self.assertTrue(any("dollar amount differs" in d
+                            for d in art.consistency["details"]))
+        self.assertEqual(meta["consistency_counts"]["discrepancy"], 1)
+        self.assertTrue(any("Verify before use" in n
+                            for n in meta["digest"]["notables"]))
 
 
 if __name__ == "__main__":
