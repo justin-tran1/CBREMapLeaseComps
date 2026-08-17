@@ -9,6 +9,7 @@ export type FieldKey =
   | 'county'
   | 'market'
   | 'submarket'
+  | 'district'
   | 'latitude'
   | 'longitude'
   // Asset
@@ -29,23 +30,36 @@ export type FieldKey =
   | 'suite'
   | 'floor'
   | 'areaLeased'
+  | 'officeArea'
   // Economics
   | 'baseRent'
   | 'effectiveRent'
   | 'opex'
   | 'escalation'
   | 'escalationType'
-  | 'escalationRate'
+  | 'escalationPercent'
+  | 'escalationValue'
+  | 'escalationComments'
   | 'freeRent'
   | 'tiAllowance'
+  | 'tiAsIs'
+  | 'tiNotes'
+  | 'otherConcessions'
   // Parties
   | 'lessor'
+  | 'sublessor'
   | 'lessee'
   | 'lessorBroker'
+  | 'lessorBrokerFirm'
   | 'lesseeBroker'
+  | 'lesseeBrokerFirm'
   | 'brokers'
+  | 'naicsCode'
   // Free text
   | 'notes'
+  // Reference
+  | 'compId'
+  | 'confidentiality'
 
 export type FieldKind =
   | 'text'
@@ -60,7 +74,16 @@ export type FieldKind =
 export interface FieldDef {
   key: FieldKey
   label: string
-  group: 'Location' | 'Asset' | 'Dates & term' | 'Deal structure' | 'Space' | 'Economics' | 'Parties' | 'Notes'
+  group:
+    | 'Location'
+    | 'Asset'
+    | 'Dates & term'
+    | 'Deal structure'
+    | 'Space'
+    | 'Economics'
+    | 'Parties'
+    | 'Notes'
+    | 'Reference'
   kind: FieldKind
   /** Short hint shown in the column mapper. */
   hint?: string
@@ -87,6 +110,7 @@ export interface LeaseDeal {
   county: string
   market: string
   submarket: string
+  district: string
   lat: number | null
   lon: number | null
   /** Where the coordinates came from. */
@@ -115,6 +139,8 @@ export interface LeaseDeal {
   suite: string
   floor: string
   areaLeased: number | null
+  /** A secondary area column some exports still carry. Never used as the leased area. */
+  officeArea: number | null
 
   // Economics
   baseRent: number | null
@@ -129,18 +155,31 @@ export interface LeaseDeal {
   opexAnnual: number | null
   escalation: string
   escalationType: string
-  escalationRate: string
+  escalationPercent: string
+  escalationValue: string
+  escalationComments: string
   freeRent: number | null
   tiAllowance: number | null
+  tiAsIs: string
+  tiNotes: string
+  otherConcessions: string
 
   // Parties
   lessor: string
+  sublessor: string
   lessee: string
   lessorBroker: string
+  lessorBrokerFirm: string
   lesseeBroker: string
+  lesseeBrokerFirm: string
   brokers: string
+  naicsCode: string
 
   notes: string
+
+  // Reference
+  compId: string
+  confidentiality: string
 
   /** Full original row, so nothing from the upload is ever lost. */
   raw: Record<string, unknown>

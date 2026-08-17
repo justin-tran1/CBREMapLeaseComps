@@ -111,6 +111,8 @@ const results = await page.evaluate(async () => {
   eq('match opex', map.opex, 'Operating Expenses')
   eq('match escalation', map.escalation, 'Rent Escalation')
   eq('match escalation type', map.escalationType, 'Escalation Type')
+  eq('escalation percent is its own field', fields.autoMapColumns(['Escalation Percent']).escalationPercent, 'Escalation Percent')
+  eq('escalation value is its own field', fields.autoMapColumns(['Escalation Value']).escalationValue, 'Escalation Value')
   eq('match free rent', map.freeRent, 'Months Free Rent')
   eq('match TI', map.tiAllowance, 'Tenant Improvement Allowance')
   eq('match lessor', map.lessor, 'Landlord')
@@ -132,6 +134,74 @@ const results = await page.evaluate(async () => {
   eq('alt: term', alt.termMonths, 'TERM')
   eq('alt: escalations', alt.escalation, 'ESCALATIONS')
   eq('alt: tenant', alt.lessee, 'TENANT')
+
+  // --------------------------------- the practice's own comp export schema
+  // Verbatim header row from a CBRE Healthcare & Life Sciences export. Every column has
+  // to land on the right field, and the ones that look alike are the point of the test.
+  const cbre = fields.autoMapColumns([
+    'Confidentiality', 'Signed Date', 'Start Date', 'Lease Term', 'End Date',
+    'Lease Transaction Type', 'Lease Type', 'Tenant', 'Property Subtype', 'Property Class',
+    'Submarket', 'District', 'Property Name', 'Address', 'Floor', 'Suite', 'City',
+    'Area Leased', 'Office Area (DEPRECATED)', 'Base Rent Yearly', 'Rate Type',
+    'OPEX (Yearly)', 'Escalation Value', 'Escalation Percent', 'Escalation Comments',
+    'Free Rent Months', 'TI Allowance', 'TIs as-is', 'TI Notes', 'Other Concessions',
+    'Notes', 'Tenant Agent(s)', 'Tenant Representative', 'Listing Agent(s)',
+    'Listing Representative', 'Sublessor', 'Lessor', 'Tenant NAICS Code', 'Year Built',
+    'Property Type', 'Market', 'State', 'Latitude', 'Longitude', 'Comp ID',
+  ])
+  const expectCbre = {
+    confidentiality: 'Confidentiality',
+    executionDate: 'Signed Date',
+    leaseDate: 'Start Date',
+    termMonths: 'Lease Term',
+    expirationDate: 'End Date',
+    transactionType: 'Lease Transaction Type',
+    leaseType: 'Lease Type',
+    lessee: 'Tenant',
+    propertySubtype: 'Property Subtype',
+    buildingClass: 'Property Class',
+    submarket: 'Submarket',
+    district: 'District',
+    propertyName: 'Property Name',
+    address: 'Address',
+    floor: 'Floor',
+    suite: 'Suite',
+    city: 'City',
+    areaLeased: 'Area Leased',
+    officeArea: 'Office Area (DEPRECATED)',
+    baseRent: 'Base Rent Yearly',
+    rateType: 'Rate Type',
+    opex: 'OPEX (Yearly)',
+    escalationValue: 'Escalation Value',
+    escalationPercent: 'Escalation Percent',
+    escalationComments: 'Escalation Comments',
+    freeRent: 'Free Rent Months',
+    tiAllowance: 'TI Allowance',
+    tiAsIs: 'TIs as-is',
+    tiNotes: 'TI Notes',
+    otherConcessions: 'Other Concessions',
+    notes: 'Notes',
+    lesseeBroker: 'Tenant Agent(s)',
+    lesseeBrokerFirm: 'Tenant Representative',
+    lessorBroker: 'Listing Agent(s)',
+    lessorBrokerFirm: 'Listing Representative',
+    sublessor: 'Sublessor',
+    lessor: 'Lessor',
+    naicsCode: 'Tenant NAICS Code',
+    yearBuilt: 'Year Built',
+    propertyType: 'Property Type',
+    market: 'Market',
+    state: 'State',
+    latitude: 'Latitude',
+    longitude: 'Longitude',
+    compId: 'Comp ID',
+  }
+  for (const [field, header] of Object.entries(expectCbre)) {
+    eq(`CBRE schema: ${header} -> ${field}`, cbre[field], header)
+  }
+  truthy('CBRE schema: no header claimed twice',
+    new Set(Object.values(cbre)).size === Object.values(cbre).length)
+  eq('CBRE schema: every column is mapped', Object.keys(expectCbre).length, 45)
 
   // ------------------------------------------------------------ geometry
   const box = [[0, 0], [0, 10], [10, 10], [10, 0]]
@@ -221,6 +291,13 @@ const results = await page.evaluate(async () => {
   eq('escalation 3.5%', format.fmtEscalationRate('3.5%'), '3.5%')
   eq('escalation $0.75', format.fmtEscalationRate('$0.75'), '$0.75')
   eq('escalation CPI text', format.fmtEscalationRate('CPI, 2% floor'), 'CPI, 2% floor')
+  eq('escalation percent 3', format.fmtEscalationPercent('3'), '3%')
+  eq('escalation percent 0.03', format.fmtEscalationPercent('0.03'), '3%')
+  eq('escalation percent 3.5%', format.fmtEscalationPercent('3.5%'), '3.5%')
+  eq('escalation percent zero reads as absent', format.fmtEscalationPercent('0.00%'), '')
+  eq('escalation value dollars', format.fmtEscalationValue('$0.75'), '$0.75')
+  eq('escalation value bare number stays money', format.fmtEscalationValue('0.75'), '$0.75')
+  eq('escalation value zero reads as absent', format.fmtEscalationValue('0.00'), '')
   eq('isMonthlyQuote yes', format.isMonthlyQuote('Monthly $/SF'), true)
   eq('isMonthlyQuote no', format.isMonthlyQuote('Annual $/SF'), false)
   eq('isMonthlyQuote blank', format.isMonthlyQuote(''), false)
@@ -274,6 +351,24 @@ const results = await page.evaluate(async () => {
   eq('pipeline: free rent blank', deals[1].freeRent, null)
   eq('pipeline: TI', deals[0].tiAllowance, 75)
   eq('pipeline: escalation resolved', normalize.resolveEscalation(deals[1]), '3%')
+
+  // Split escalation columns, with a zero standing in for "not this one".
+  const escDeal = (over) => ({
+    escalation: '', escalationType: '', escalationPercent: '', escalationValue: '',
+    escalationComments: '', ...over,
+  })
+  eq('escalation: percent wins over a zero value',
+    normalize.resolveEscalation(escDeal({ escalationPercent: '3.5%', escalationValue: '0.00' })), '3.5%')
+  eq('escalation: falls back to the dollar value',
+    normalize.resolveEscalation(escDeal({ escalationPercent: '0.00%', escalationValue: '$1.50' })), '$1.50')
+  eq('escalation: type is appended',
+    normalize.resolveEscalation(escDeal({ escalationPercent: '3%', escalationType: 'Fixed %' })), '3% · Fixed %')
+  eq('escalation: comments carry the stepped detail',
+    normalize.resolveEscalation(escDeal({ escalationPercent: '3%', escalationComments: 'then CPI' })), '3% · then CPI')
+  eq('escalation: comments alone still show',
+    normalize.resolveEscalation(escDeal({ escalationComments: 'Flat through year 3' })), 'Flat through year 3')
+  eq('escalation: all zeros read as empty',
+    normalize.resolveEscalation(escDeal({ escalationPercent: '0.00%', escalationValue: '0.00' })), '')
   eq('pipeline: raw row kept', deals[0].raw.Address, '1 A St')
 
   // --------------------------------------------------------------- filters

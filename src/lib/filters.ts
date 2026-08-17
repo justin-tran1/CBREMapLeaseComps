@@ -106,6 +106,7 @@ function searchCorpus(deal: LeaseDeal): string {
     deal.zip,
     deal.submarket,
     deal.market,
+    deal.district,
     deal.lessee,
     deal.lessor,
     deal.suite,
@@ -115,7 +116,9 @@ function searchCorpus(deal: LeaseDeal): string {
     deal.leaseType,
     deal.transactionType,
     resolveBrokers(deal),
+    deal.sublessor,
     deal.notes,
+    deal.compId,
   ]
     .join(' ')
     .toLowerCase()

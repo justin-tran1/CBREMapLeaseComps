@@ -16,7 +16,7 @@ export function TopBar() {
         <CbreLogo />
         <span className="topbar__title">
           CBRE Healthcare &amp; Life Sciences
-          <span className="topbar__subtitle">Lease Comp Mapper</span>
+          <span className="topbar__subtitle">Market Data</span>
         </span>
       </div>
 

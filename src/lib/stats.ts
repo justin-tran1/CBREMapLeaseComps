@@ -1,3 +1,4 @@
+import { resolveEscalation } from './normalize'
 import { OTHER_LABEL } from './palette'
 import type { LeaseDeal } from '../types'
 
@@ -352,7 +353,11 @@ export function computeCoverage(deals: LeaseDeal[]): CoverageRow[] {
     { label: 'Area leased', present: countNum((d) => d.areaLeased), total },
     { label: 'Base rent', present: countNum((d) => d.baseRent), total },
     { label: 'OpEx', present: countNum((d) => d.opex), total },
-    { label: 'Escalation', present: deals.filter((d) => (d.escalation || d.escalationRate || d.escalationType).trim() !== '').length, total },
+    {
+      label: 'Escalation',
+      present: deals.filter((d) => resolveEscalation(d) !== '').length,
+      total,
+    },
     { label: 'Free rent', present: countNum((d) => d.freeRent), total },
     { label: 'TI allowance', present: countNum((d) => d.tiAllowance), total },
     { label: 'Lease type', present: countText((d) => d.leaseType), total },

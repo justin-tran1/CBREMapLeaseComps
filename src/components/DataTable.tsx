@@ -17,6 +17,13 @@ interface Column {
 }
 
 const COLUMNS: Column[] = [
+  { key: 'compId', label: 'Comp ID', render: (d) => fmtText(d.compId), sortValue: (d) => d.compId.toLowerCase() },
+  {
+    key: 'confidentiality',
+    label: 'Conf.',
+    render: (d) => fmtText(d.confidentiality),
+    sortValue: (d) => d.confidentiality.toLowerCase(),
+  },
   {
     key: 'property',
     label: 'Property',
@@ -98,6 +105,12 @@ const COLUMNS: Column[] = [
   },
   { key: 'lessor', label: 'Lessor', render: (d) => fmtText(d.lessor), sortValue: (d) => d.lessor.toLowerCase() },
   { key: 'lessee', label: 'Lessee', render: (d) => fmtText(d.lessee), sortValue: (d) => d.lessee.toLowerCase() },
+  {
+    key: 'submarket',
+    label: 'Submarket',
+    render: (d) => fmtText(d.submarket),
+    sortValue: (d) => d.submarket.toLowerCase(),
+  },
 ]
 
 const PAGE_SIZES = [50, 100, 250, 1000]

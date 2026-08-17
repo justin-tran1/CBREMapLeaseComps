@@ -136,6 +136,29 @@ export function fmtEscalationRate(raw: string): string {
   return String(Number(n.toFixed(2)))
 }
 
+/** A percentage escalation column: `3`, `3%`, `0.03` all read as 3%. Zero means none. */
+export function fmtEscalationPercent(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (/[a-z]/i.test(trimmed)) return trimmed
+
+  const n = Number.parseFloat(trimmed.replace(/[%,\s]/g, ''))
+  if (!Number.isFinite(n) || n === 0) return ''
+  const percent = n > 0 && n < 1 ? n * 100 : n
+  return `${Number(percent.toFixed(2))}%`
+}
+
+/** A per-SF dollar escalation column. Zero means none. */
+export function fmtEscalationValue(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (/[a-z]/i.test(trimmed)) return trimmed
+
+  const n = Number.parseFloat(trimmed.replace(/[$,\s]/g, ''))
+  if (!Number.isFinite(n) || n === 0) return ''
+  return fmtMoney(n)
+}
+
 export function pluralize(count: number, singular: string, plural?: string): string {
   return count === 1 ? singular : plural ?? `${singular}s`
 }

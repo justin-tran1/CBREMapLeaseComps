@@ -1,4 +1,4 @@
-# CBRE Healthcare & Life Sciences: Lease Comp Mapper
+# CBRE Healthcare & Life Sciences: Market Data
 
 Upload a spreadsheet of lease comparables. Every address lands on a 3D map you can click
 through building by building, and the same rows drive a dashboard with the filters an
@@ -34,7 +34,9 @@ still reads correctly. Workbooks with several sheets get a sheet picker.
 
 The **Load sample data** button opens a 74-row demo set across the major healthcare and
 life sciences markets: Cambridge, South San Francisco, San Diego, the Texas Medical Center,
-Research Triangle Park, University City and others. Real buildings, invented deal terms.
+Research Triangle Park, University City and others. Real buildings, invented deal terms. Its
+header row is the practice's own export schema, verbatim, so the demo exercises the same
+column names a real book uses.
 
 ### 2. Check the column mapping
 
@@ -47,16 +49,40 @@ Every match is a dropdown, so anything the matcher gets wrong takes one click to
 Each field shows sample values from the column feeding it. Street address, area leased, and
 base rent are required. Everything else is optional and shows as blank when absent.
 
-Comp exports often carry several escalation columns. The tool maps three separately:
+Comp exports split escalation across several columns, usually with a zero standing in for
+"not this one". All five are mapped separately and composed into the single popup row:
 
-| Field | Typical column | Used for |
+| Field | Typical column | How it is used |
 | --- | --- | --- |
-| Escalation | `Annual Escalation`, `Rent Escalation` | The value shown in the popup |
-| Escalation type | `Escalation Type` | Appended when the main column omits it |
-| Escalation rate | `Escalation Rate`, `Escalation %` | Falls back here when the main column is blank |
+| Escalation | `Annual Escalation`, `Rent Escalation` | A descriptive column wins outright |
+| Escalation percent | `Escalation Percent`, `Escalation Rate` | First fallback. A zero reads as absent |
+| Escalation value | `Escalation Value`, `Escalation Amount` | Second fallback, formatted as dollars per SF |
+| Escalation type | `Escalation Type` | Appended when it adds something |
+| Escalation comments | `Escalation Comments` | Appended, because a stepped escalation only reads in full |
 
-Pick whichever column reads best for a deal summary. Columns the tool does not recognize
-stay attached to their row and travel with the CSV export.
+Columns the tool does not recognize stay attached to their row and travel with the CSV
+export.
+
+### The export schema it is tuned for
+
+All 45 columns of the practice's own comp export auto-map with no dropdown touched, and a
+test asserts every one of them:
+
+`Confidentiality`, `Signed Date`, `Start Date`, `Lease Term`, `End Date`,
+`Lease Transaction Type`, `Lease Type`, `Tenant`, `Property Subtype`, `Property Class`,
+`Submarket`, `District`, `Property Name`, `Address`, `Floor`, `Suite`, `City`,
+`Area Leased`, `Office Area (DEPRECATED)`, `Base Rent Yearly`, `Rate Type`,
+`OPEX (Yearly)`, `Escalation Value`, `Escalation Percent`, `Escalation Comments`,
+`Free Rent Months`, `TI Allowance`, `TIs as-is`, `TI Notes`, `Other Concessions`,
+`Notes`, `Tenant Agent(s)`, `Tenant Representative`, `Listing Agent(s)`,
+`Listing Representative`, `Sublessor`, `Lessor`, `Tenant NAICS Code`, `Year Built`,
+`Property Type`, `Market`, `State`, `Latitude`, `Longitude`, `Comp ID`.
+
+The near-collisions are the point. `Area Leased` and `Office Area (DEPRECATED)` stay
+separate and the deprecated column is never read as the leased area. `Tenant Agent(s)`
+holds the named agents while `Tenant Representative` holds their firm, and the same for the
+listing side. `Sublessor` does not disturb `Lessor`. `Tenant`, `Tenant NAICS Code`,
+`Tenant Agent(s)` and `Tenant Representative` all land on different fields.
 
 ### 3. Locate the addresses
 
@@ -91,8 +117,13 @@ buildings** button drops the map flat and back again.
 Each deal shows, in this order:
 
 Lease date, term length, execution date, lease type, property subtype, rate type, area
-leased, floor, suite, base rent, OpEx, escalation, free rent, TI allowance. Lessor, lessee,
-associated brokers, and any notes follow underneath.
+leased, floor, suite, base rent, OpEx, escalation, free rent, TI allowance. Those 14 are
+fixed and in that order. TIs as-is follows the allowance it qualifies when the column is
+present, then lessor, sublessor on a sublease, lessee, and the brokers. Notes, TI notes and
+other concessions sit at the foot of the card, and the Comp ID is in the footer.
+
+A deal the export marks confidential carries a red flag in the popup header and a column in
+the table.
 
 **Basemaps.** Seven options in the layer switcher: aerial (the default), aerial with
 labels, light, streets, light gray canvas, topographic, and dark. Buildings extrude over
@@ -181,10 +212,10 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 188 assertions
+npm run test:units               # terminal 2, 250 assertions
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 89 end-to-end checks
+npm run test:e2e                 # terminal 2, 71 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
@@ -192,7 +223,8 @@ npm run test:standalone          # 9 checks against the single file, opened from
 
 `tests/units.mjs` covers value coercion, header matching, geometry, building-footprint
 containment, draw geometry, the brand palette, formatting, filtering, aggregation, and the
-geocoding response parsers with stubbed network calls. `tests/smoke.mjs` drives the real
+geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
+practice's export schema land on the right field. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
 synthetic vector tile generated in the test. `tests/standalone.mjs` opens the single-file
 build straight off disk, which is where the browser rules on workers and origins bite

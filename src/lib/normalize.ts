@@ -13,7 +13,7 @@ import {
   toNumber,
   toText,
 } from './coerce'
-import { fmtEscalationRate, isMonthlyQuote } from './format'
+import { fmtEscalationPercent, fmtEscalationRate, fmtEscalationValue, isMonthlyQuote } from './format'
 import type { ColumnMap, LeaseDeal, ParsedSheet, Site } from '../types'
 
 /**
@@ -135,6 +135,7 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       county: toText(pick(row, map, 'county')),
       market: toText(pick(row, map, 'market')),
       submarket: toText(pick(row, map, 'submarket')),
+      district: toText(pick(row, map, 'district')),
       lat: hasFileCoords ? lat : null,
       lon: hasFileCoords ? lon : null,
       geoSource: hasFileCoords ? 'file' : 'none',
@@ -158,6 +159,7 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       suite: toText(pick(row, map, 'suite')),
       floor: toText(pick(row, map, 'floor')),
       areaLeased: toArea(pick(row, map, 'areaLeased')),
+      officeArea: toArea(pick(row, map, 'officeArea')),
 
       baseRent,
       baseRentAnnual: annualizeRate(baseRent, rateType),
@@ -166,17 +168,29 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       opexAnnual: annualizeRate(opex, rateType),
       escalation: toText(pick(row, map, 'escalation')),
       escalationType: toText(pick(row, map, 'escalationType')),
-      escalationRate: toText(pick(row, map, 'escalationRate')),
+      escalationPercent: toText(pick(row, map, 'escalationPercent')),
+      escalationValue: toText(pick(row, map, 'escalationValue')),
+      escalationComments: toText(pick(row, map, 'escalationComments')),
       freeRent: toFreeRentMonths(pick(row, map, 'freeRent')),
       tiAllowance: toCurrency(pick(row, map, 'tiAllowance')),
+      tiAsIs: toText(pick(row, map, 'tiAsIs')),
+      tiNotes: toText(pick(row, map, 'tiNotes')),
+      otherConcessions: toText(pick(row, map, 'otherConcessions')),
 
       lessor: toText(pick(row, map, 'lessor')),
+      sublessor: toText(pick(row, map, 'sublessor')),
       lessee: toText(pick(row, map, 'lessee')),
       lessorBroker: toText(pick(row, map, 'lessorBroker')),
+      lessorBrokerFirm: toText(pick(row, map, 'lessorBrokerFirm')),
       lesseeBroker: toText(pick(row, map, 'lesseeBroker')),
+      lesseeBrokerFirm: toText(pick(row, map, 'lesseeBrokerFirm')),
       brokers: toText(pick(row, map, 'brokers')),
+      naicsCode: toText(pick(row, map, 'naicsCode')),
 
       notes: toText(pick(row, map, 'notes')),
+
+      compId: toText(pick(row, map, 'compId')),
+      confidentiality: toText(pick(row, map, 'confidentiality')),
 
       raw: row,
     }
@@ -187,23 +201,32 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
 
 /**
  * Combine the escalation columns into one readable value.
- * A descriptive escalation column wins; otherwise rate and type are joined.
+ *
+ * Comp exports commonly split escalation across a descriptive column, a percentage, a
+ * per-SF dollar amount, a type, and free-text comments, with zeros standing in for "not
+ * this one". The descriptive column wins if it exists; otherwise a non-zero percentage
+ * beats a non-zero dollar amount, the type is appended when it adds something, and
+ * comments follow because a stepped escalation only makes sense read in full.
  */
 export function resolveEscalation(deal: LeaseDeal): string {
-  const direct = deal.escalation.trim()
-  const rate = deal.escalationRate.trim()
   const type = deal.escalationType.trim()
+  const comments = deal.escalationComments.trim()
 
-  if (direct) {
-    const formatted = fmtEscalationRate(direct)
-    if (type && !formatted.toLowerCase().includes(type.toLowerCase())) return `${formatted} · ${type}`
-    return formatted
-  }
-  if (rate) {
-    const formatted = fmtEscalationRate(rate)
-    return type ? `${formatted} · ${type}` : formatted
-  }
-  return type
+  let primary = ''
+  if (deal.escalation.trim()) primary = fmtEscalationRate(deal.escalation.trim())
+  if (!primary) primary = fmtEscalationPercent(deal.escalationPercent)
+  if (!primary) primary = fmtEscalationValue(deal.escalationValue)
+
+  const parts: string[] = []
+  if (primary) parts.push(primary)
+
+  const adds = (candidate: string) =>
+    !!candidate && !parts.some((part) => part.toLowerCase().includes(candidate.toLowerCase()))
+
+  if (adds(type)) parts.push(type)
+  if (adds(comments)) parts.push(comments)
+
+  return parts.join(' · ')
 }
 
 /** Everyone who touched the deal, de-duplicated. */
@@ -217,7 +240,9 @@ export function resolveBrokers(deal: LeaseDeal): string {
   }
   add('', deal.brokers)
   add('lessor', deal.lessorBroker)
+  add('lessor', deal.lessorBrokerFirm)
   add('lessee', deal.lesseeBroker)
+  add('lessee', deal.lesseeBrokerFirm)
   return parts.join(' · ')
 }
 

@@ -96,6 +96,13 @@ export const FIELDS: FieldDef[] = [
     synonyms: ['submarket', 'sub market', 'sub-market', 'micro market', 'submarket name'],
   },
   {
+    key: 'district',
+    label: 'District',
+    group: 'Location',
+    kind: 'text',
+    synonyms: ['district', 'district name', 'leasing district', 'micromarket', 'neighborhood', 'neighbourhood'],
+  },
+  {
     key: 'latitude',
     label: 'Latitude',
     group: 'Location',
@@ -346,8 +353,16 @@ export const FIELDS: FieldDef[] = [
       'area',
       'sf',
     ],
-    avoid: ['building', 'total', 'lot', 'land', 'available', 'vacant', 'plate', 'site'],
+    avoid: ['building', 'total', 'lot', 'land', 'available', 'vacant', 'plate', 'site', 'deprecated'],
     required: true,
+  },
+  {
+    key: 'officeArea',
+    label: 'Office area',
+    group: 'Space',
+    kind: 'area',
+    hint: 'A secondary area column. Never treated as the leased area.',
+    synonyms: ['office area deprecated', 'office area', 'office sf', 'office square feet', 'office rsf'],
   },
 
   // -------------------------------------------------------------- Economics
@@ -460,7 +475,7 @@ export const FIELDS: FieldDef[] = [
       'escalation detail',
       'escalation description',
     ],
-    avoid: ['type', 'basis'],
+    avoid: ['type', 'basis', 'comment', 'note', 'percent', 'pct', 'value', 'amount'],
   },
   {
     key: 'escalationType',
@@ -478,23 +493,55 @@ export const FIELDS: FieldDef[] = [
     ],
   },
   {
-    key: 'escalationRate',
-    label: 'Escalation rate',
+    key: 'escalationPercent',
+    label: 'Escalation percent',
     group: 'Economics',
-    kind: 'text',
-    hint: 'The numeric escalation, combined with type for display',
+    kind: 'percent',
+    hint: 'The percentage escalation, shown with the type',
     synonyms: [
-      'escalation rate',
       'escalation percent',
       'escalation percentage',
-      'escalation amount',
-      'escalation value',
+      'escalation pct',
+      'escalation rate',
       'annual escalation percent',
       'annual escalation rate',
       'increase percent',
-      'bump amount',
       'bump percent',
-      'escalation pct',
+      'escalation %',
+    ],
+    avoid: ['comment', 'note', 'value', 'amount'],
+  },
+  {
+    key: 'escalationValue',
+    label: 'Escalation value',
+    group: 'Economics',
+    kind: 'currency',
+    hint: 'A per-SF dollar escalation, used when no percentage is given',
+    synonyms: [
+      'escalation value',
+      'escalation amount',
+      'escalation dollars',
+      'escalation psf',
+      'bump amount',
+      'annual escalation amount',
+    ],
+    avoid: ['comment', 'note', 'percent', 'pct'],
+  },
+  {
+    key: 'escalationComments',
+    label: 'Escalation comments',
+    group: 'Economics',
+    kind: 'text',
+    hint: 'Free text describing a stepped or unusual escalation',
+    synonyms: [
+      'escalation comments',
+      'escalation comment',
+      'escalation notes',
+      'escalation note',
+      'escalation description',
+      'escalation detail',
+      'escalation remarks',
+      'escalation schedule',
     ],
   },
   {
@@ -535,7 +582,36 @@ export const FIELDS: FieldDef[] = [
       'ti',
       'tia',
     ],
-    avoid: ['type', 'title'],
+    avoid: ['type', 'title', 'note', 'comment', 'as is'],
+  },
+  {
+    key: 'tiAsIs',
+    label: 'TIs as-is',
+    group: 'Economics',
+    kind: 'text',
+    hint: 'Whether the space was taken in as-is condition',
+    synonyms: ['tis as is', 'ti as is', 'tenant improvements as is', 'as is', 'as is condition', 'delivered as is'],
+  },
+  {
+    key: 'tiNotes',
+    label: 'TI notes',
+    group: 'Economics',
+    kind: 'text',
+    synonyms: ['ti notes', 'ti note', 'ti comments', 'tenant improvement notes', 'ti allowance notes', 'improvement notes'],
+  },
+  {
+    key: 'otherConcessions',
+    label: 'Other concessions',
+    group: 'Economics',
+    kind: 'text',
+    synonyms: [
+      'other concessions',
+      'other concession',
+      'concessions',
+      'concession',
+      'additional concessions',
+      'inducements',
+    ],
   },
 
   // ---------------------------------------------------------------- Parties
@@ -556,6 +632,14 @@ export const FIELDS: FieldDef[] = [
       'building owner',
     ],
     avoid: ['broker', 'rep', 'agent', 'contact', 'representative'],
+  },
+  {
+    key: 'sublessor',
+    label: 'Sublessor',
+    group: 'Parties',
+    kind: 'text',
+    hint: 'The party subletting the space out, on a sublease',
+    synonyms: ['sublessor', 'sublessor name', 'sublandlord', 'sub landlord', 'sublease from'],
   },
   {
     key: 'lessee',
@@ -583,6 +667,23 @@ export const FIELDS: FieldDef[] = [
       'owner broker',
       'landlord agent',
     ],
+    avoid: ['representative firm', 'brokerage firm'],
+  },
+  {
+    key: 'lessorBrokerFirm',
+    label: 'Listing representative',
+    group: 'Parties',
+    kind: 'text',
+    hint: 'The firm representing the lessor, as opposed to the named agents',
+    synonyms: [
+      'listing representative',
+      'lessor representative',
+      'landlord representative firm',
+      'listing brokerage',
+      'listing firm',
+      'lessor brokerage',
+      'landlord brokerage',
+    ],
   },
   {
     key: 'lesseeBroker',
@@ -599,6 +700,23 @@ export const FIELDS: FieldDef[] = [
       'lessee rep',
       'occupier broker',
       'tenant agent',
+    ],
+    avoid: ['representative firm', 'brokerage firm'],
+  },
+  {
+    key: 'lesseeBrokerFirm',
+    label: 'Tenant representative',
+    group: 'Parties',
+    kind: 'text',
+    hint: 'The firm representing the tenant, as opposed to the named agents',
+    synonyms: [
+      'tenant representative',
+      'lessee representative',
+      'tenant representative firm',
+      'tenant brokerage',
+      'tenant firm',
+      'lessee brokerage',
+      'occupier representative',
     ],
   },
   {
@@ -620,6 +738,14 @@ export const FIELDS: FieldDef[] = [
       'professionals',
     ],
   },
+  {
+    key: 'naicsCode',
+    label: 'Tenant NAICS code',
+    group: 'Parties',
+    kind: 'text',
+    hint: 'Industry classification for the tenant',
+    synonyms: ['tenant naics code', 'naics code', 'naics', 'tenant naics', 'industry code', 'sic code'],
+  },
 
   // ------------------------------------------------------------------- Notes
   {
@@ -640,6 +766,24 @@ export const FIELDS: FieldDef[] = [
       'details',
     ],
   },
+
+  // -------------------------------------------------------------- Reference
+  {
+    key: 'compId',
+    label: 'Comp ID',
+    group: 'Reference',
+    kind: 'text',
+    hint: 'Source system identifier, carried through to the export',
+    synonyms: ['comp id', 'comparable id', 'comp number', 'comp no', 'record id', 'deal id', 'transaction id', 'lease id'],
+  },
+  {
+    key: 'confidentiality',
+    label: 'Confidentiality',
+    group: 'Reference',
+    kind: 'text',
+    hint: 'Flagged in the popup and the table when a deal is restricted',
+    synonyms: ['confidentiality', 'confidential', 'confidentiality flag', 'confidentiality status', 'restricted'],
+  },
 ]
 
 export const FIELD_BY_KEY: Record<FieldKey, FieldDef> = Object.fromEntries(
@@ -655,6 +799,7 @@ export const FIELD_GROUPS = [
   'Economics',
   'Parties',
   'Notes',
+  'Reference',
 ] as const
 
 /** lowercase, punctuation to spaces, collapse whitespace. `Base Rent ($/SF/Yr)` -> `base rent sf yr`. */

@@ -25,6 +25,23 @@ function freeRentText(deal: LeaseDeal): string {
   return `${rounded} ${rounded === 1 ? 'month' : 'months'}`
 }
 
+/** Anything other than a plain "no" is worth flagging on a comp. */
+function confidentialLabel(deal: LeaseDeal | undefined): string {
+  const raw = (deal?.confidentiality ?? '').trim()
+  if (!raw) return ''
+  if (/^(no|none|n|false|public|not confidential|0)$/i.test(raw)) return ''
+  return /^(yes|y|true|1|confidential)$/i.test(raw) ? 'Confidential' : raw
+}
+
+/** Free-text columns that only some exports carry, kept out of the fixed field order. */
+function noteBlocks(deal: LeaseDeal): Array<{ label: string; text: string }> {
+  return [
+    { label: '', text: deal.notes },
+    { label: 'TI notes', text: deal.tiNotes },
+    { label: 'Other concessions', text: deal.otherConcessions },
+  ].filter((block) => block.text.trim() !== '')
+}
+
 function tiText(deal: LeaseDeal): string {
   if (deal.tiAllowance === null) return EMPTY
   if (deal.tiAllowance === 0) return 'None'
@@ -54,19 +71,26 @@ function DealDetail({ deal }: { deal: LeaseDeal }) {
         <Row label="Escalation" value={fmtText(resolveEscalation(deal))} />
         <Row label="Free rent" value={freeRentText(deal)} />
         <Row label="TI allowance" value={tiText(deal)} />
+        {deal.tiAsIs.trim() && <Row label="TIs as-is" value={fmtText(deal.tiAsIs)} />}
 
         <div className="pop__section">Parties</div>
         <Row label="Lessor" value={fmtText(deal.lessor)} />
+        {deal.sublessor.trim() && <Row label="Sublessor" value={fmtText(deal.sublessor)} />}
         <Row label="Lessee" value={fmtText(deal.lessee)} />
         <Row label="Brokers" value={fmtText(brokers)} />
       </div>
 
-      {deal.notes.trim() && (
+      {noteBlocks(deal).length > 0 && (
         <>
           <div className="pop__section" style={{ borderTop: '1px solid var(--border-hairline)' }}>
             Notes
           </div>
-          <div className="pop__notes">{deal.notes}</div>
+          {noteBlocks(deal).map((block) => (
+            <div className="pop__notes" key={block.label}>
+              {block.label && <span className="pop__notelabel">{block.label}</span>}
+              {block.text}
+            </div>
+          ))}
         </>
       )}
     </>
@@ -94,6 +118,9 @@ export function PropertyPopup({ site, deal, onSelectDeal }: PropertyPopupProps) 
             ? `${site.deals.length} deals at this address`
             : site.deals[0]?.propertySubtype || site.deals[0]?.propertyType || 'Lease comp'}
         </div>
+        {confidentialLabel(deal ?? site.deals[0]) && (
+          <div className="pop__flag">{confidentialLabel(deal ?? site.deals[0])}</div>
+        )}
         <div className="pop__title">{site.label}</div>
         {address && <div className="pop__address">{address}</div>}
       </div>
@@ -142,9 +169,12 @@ export function PropertyPopup({ site, deal, onSelectDeal }: PropertyPopupProps) 
       <div className="pop__footer">
         <span>
           {deal
-            ? multiple
-              ? `Deal ${index + 1} of ${site.deals.length} · row ${deal.sourceRow}`
-              : `Row ${deal.sourceRow}`
+            ? [
+                multiple ? `Deal ${index + 1} of ${site.deals.length}` : '',
+                deal.compId.trim() ? `Comp ${deal.compId.trim()}` : `Row ${deal.sourceRow}`,
+              ]
+                .filter(Boolean)
+                .join(' · ')
             : 'Choose a deal to see its terms'}
         </span>
 

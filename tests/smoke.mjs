@@ -115,29 +115,70 @@ await page.getByRole('heading', { name: 'Location' }).waitFor({ timeout: 8000 })
 check('column mapper opens', await page.locator('.mapper__bar').isVisible())
 
 const rowText = await page.locator('.mapper__bar .card__subtitle').innerText()
-check('74 rows parsed', rowText.includes('74 rows'), rowText)
+check('74 rows and 45 columns parsed', rowText.includes('74 rows') && rowText.includes('45 columns'), rowText)
 
 const mapped = async (id) => page.locator(`#map-${id}`).inputValue()
-check('address auto-mapped', (await mapped('address')) === 'Property Address', await mapped('address'))
-check('area auto-mapped', (await mapped('areaLeased')) === 'Area Leased (SF)', await mapped('areaLeased'))
-check('base rent auto-mapped', (await mapped('baseRent')) === 'Base Rent ($/SF/Yr)', await mapped('baseRent'))
-check('opex auto-mapped', (await mapped('opex')) === 'OpEx ($/SF/Yr)', await mapped('opex'))
-check('lease date auto-mapped', (await mapped('leaseDate')) === 'Lease Date', await mapped('leaseDate'))
-check('execution date auto-mapped', (await mapped('executionDate')) === 'Execution Date', await mapped('executionDate'))
-check('term auto-mapped', (await mapped('termMonths')) === 'Term (Months)', await mapped('termMonths'))
-check('escalation auto-mapped', (await mapped('escalation')) === 'Annual Escalation', await mapped('escalation'))
-check('escalation type auto-mapped', (await mapped('escalationType')) === 'Escalation Type', await mapped('escalationType'))
-check('escalation rate auto-mapped', (await mapped('escalationRate')) === 'Escalation Rate', await mapped('escalationRate'))
-check('free rent auto-mapped', (await mapped('freeRent')) === 'Free Rent (Months)', await mapped('freeRent'))
-check('TI auto-mapped', (await mapped('tiAllowance')) === 'TI Allowance ($/SF)', await mapped('tiAllowance'))
-check('lessor auto-mapped', (await mapped('lessor')) === 'Lessor', await mapped('lessor'))
-check('lessee auto-mapped', (await mapped('lessee')) === 'Lessee', await mapped('lessee'))
-check('subtype auto-mapped', (await mapped('propertySubtype')) === 'Property Subtype', await mapped('propertySubtype'))
-check('rate type auto-mapped', (await mapped('rateType')) === 'Rate Type', await mapped('rateType'))
-check('lease type auto-mapped', (await mapped('leaseType')) === 'Lease Type', await mapped('leaseType'))
-check('lat auto-mapped', (await mapped('latitude')) === 'Latitude', await mapped('latitude'))
-check('lon auto-mapped', (await mapped('longitude')) === 'Longitude', await mapped('longitude'))
-check('notes auto-mapped', (await mapped('notes')) === 'Comments', await mapped('notes'))
+
+// The sample's header row is the practice's own export schema, verbatim, so this doubles
+// as a check that a real book auto-maps without anyone touching a dropdown.
+const EXPECTED_MAPPING = {
+  confidentiality: 'Confidentiality',
+  executionDate: 'Signed Date',
+  leaseDate: 'Start Date',
+  termMonths: 'Lease Term',
+  expirationDate: 'End Date',
+  transactionType: 'Lease Transaction Type',
+  leaseType: 'Lease Type',
+  lessee: 'Tenant',
+  propertySubtype: 'Property Subtype',
+  buildingClass: 'Property Class',
+  submarket: 'Submarket',
+  district: 'District',
+  propertyName: 'Property Name',
+  address: 'Address',
+  floor: 'Floor',
+  suite: 'Suite',
+  city: 'City',
+  areaLeased: 'Area Leased',
+  officeArea: 'Office Area (DEPRECATED)',
+  baseRent: 'Base Rent Yearly',
+  rateType: 'Rate Type',
+  opex: 'OPEX (Yearly)',
+  escalationValue: 'Escalation Value',
+  escalationPercent: 'Escalation Percent',
+  escalationComments: 'Escalation Comments',
+  freeRent: 'Free Rent Months',
+  tiAllowance: 'TI Allowance',
+  tiAsIs: 'TIs as-is',
+  tiNotes: 'TI Notes',
+  otherConcessions: 'Other Concessions',
+  notes: 'Notes',
+  lesseeBroker: 'Tenant Agent(s)',
+  lesseeBrokerFirm: 'Tenant Representative',
+  lessorBroker: 'Listing Agent(s)',
+  lessorBrokerFirm: 'Listing Representative',
+  sublessor: 'Sublessor',
+  lessor: 'Lessor',
+  naicsCode: 'Tenant NAICS Code',
+  yearBuilt: 'Year Built',
+  propertyType: 'Property Type',
+  market: 'Market',
+  state: 'State',
+  latitude: 'Latitude',
+  longitude: 'Longitude',
+  compId: 'Comp ID',
+}
+
+let mismatched = []
+for (const [field, header] of Object.entries(EXPECTED_MAPPING)) {
+  const actual = await mapped(field)
+  if (actual !== header) mismatched.push(`${field}: got "${actual}", want "${header}"`)
+}
+check(
+  `all ${Object.keys(EXPECTED_MAPPING).length} export columns auto-map`,
+  mismatched.length === 0,
+  mismatched.slice(0, 4).join(' | '),
+)
 
 // ------------------------------------------------------------------ 2. map
 await page.getByRole('button', { name: 'Continue' }).click()
@@ -168,12 +209,16 @@ check('found a multi-deal pin', multiIdx >= 0)
 await pins.nth(singleIdx).dispatchEvent('click')
 await page.locator('.maplibregl-popup .pop').waitFor({ timeout: 5000 })
 const keys = await page.locator('.maplibregl-popup .pop__key').allInnerTexts()
-const expectedOrder = [
+const REQUESTED_ORDER = [
   'Lease date', 'Term length', 'Execution date', 'Lease type', 'Property subtype', 'Rate type',
   'Area leased', 'Floor', 'Suite', 'Base rent', 'OpEx', 'Escalation', 'Free rent', 'TI allowance',
-  'Lessor', 'Lessee', 'Brokers',
 ]
-check('popup field order exact', JSON.stringify(keys) === JSON.stringify(expectedOrder), keys.join(' | '))
+check(
+  'popup opens with the requested 14 fields in order',
+  JSON.stringify(keys.slice(0, REQUESTED_ORDER.length)) === JSON.stringify(REQUESTED_ORDER),
+  keys.join(' | '),
+)
+check('parties follow the requested fields', keys.includes('Lessor') && keys.includes('Lessee') && keys.includes('Brokers'), keys.join(' | '))
 
 const vals = await page.locator('.maplibregl-popup .pop__val').allInnerTexts()
 const asObj = Object.fromEntries(keys.map((k, i) => [k, vals[i]]))
@@ -196,7 +241,7 @@ check('no field rows until a deal is chosen', (await page.locator('.pop__key').c
 
 await pickItems.first().click()
 await page.locator('.pop__key').first().waitFor({ timeout: 4000 })
-check('picking a deal shows its terms', (await page.locator('.pop__key').count()) === 17)
+check('picking a deal shows its terms', (await page.locator('.pop__key').count()) >= 17, `${await page.locator('.pop__key').count()} rows`)
 check('back link present', await page.locator('.pop__back').isVisible())
 check('deal counter shown', /Deal 1 of \d+/.test(await page.locator('.pop__footer span').first().innerText()))
 
@@ -297,7 +342,7 @@ await openSection('fsection-city')
 await page.locator('#fsection-city .optionlist__item', { hasText: 'Cambridge' }).locator('input').check()
 await page.waitForTimeout(600)
 const matchLine = (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
-check('city filter narrows the set', matchLine.startsWith('11 of 74'), matchLine)
+check('city filter narrows the set', matchLine.startsWith('9 of 74'), matchLine)
 check('map reflects the city filter', (await page.locator('.pin-wrap').count()) === 3, `${await page.locator('.pin-wrap').count()} pins`)
 check('filter chip appears', await page.locator('.chip', { hasText: 'City: Cambridge' }).isVisible())
 
@@ -305,9 +350,9 @@ await openSection('fsection-area-leased-sf')
 await page.locator('#fsection-area-leased-sf input[aria-label="Minimum"]').fill('40000')
 await page.waitForTimeout(700)
 check('area range chip appears', await page.locator('.chip', { hasText: 'Area:' }).isVisible())
-// Cambridge areas: 8.5k x2, 14.2k, 17.6k, 22.4k, 38.9k x2, 61k, 105k x3. A 40k floor leaves 4.
+// Cambridge areas: 8.5k x2, 14.2k, 17.6k, 61k x4, 105k. A 40,000 SF floor leaves 5.
 const afterArea = (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
-check('area range narrows further', afterArea.startsWith('4 of 74'), afterArea)
+check('area range narrows further', afterArea.startsWith('5 of 74'), afterArea)
 
 await openSection('fsection-lease-type')
 check('lease type options listed', (await page.locator('#fsection-lease-type .optionlist__item').count()) > 0)
@@ -377,7 +422,7 @@ check('recharts surfaces present', (await page.locator('.chart .recharts-surface
 
 await page.locator('#fsection-city .optionlist__item', { hasText: 'Houston' }).locator('input').check()
 await page.waitForTimeout(800)
-check('dashboard responds to the shared filters', (await page.locator('.dash__sub').innerText()).includes('6 of 74'))
+check('dashboard responds to the shared filters', (await page.locator('.dash__sub').innerText()).includes('7 of 74'))
 check('dashboard shows the filter chip', await page.locator('.dash .chip', { hasText: 'City: Houston' }).isVisible())
 await page.getByRole('button', { name: 'Clear all filters' }).first().click()
 await page.waitForTimeout(600)
@@ -386,7 +431,8 @@ await page.waitForTimeout(600)
 check('data table paginates at 50', (await page.locator('.dtable tbody tr').count()) === 50)
 await page.locator('.dtable th', { hasText: 'Area leased' }).locator('button').click()
 await page.waitForTimeout(500)
-const areas = await page.locator('.dtable tbody tr td:nth-child(13)').allInnerTexts()
+const areaColumn = (await page.locator('.dtable thead th').allInnerTexts()).findIndex((t) => t.includes('Area leased')) + 1
+const areas = await page.locator(`.dtable tbody tr td:nth-child(${areaColumn + 1})`).allInnerTexts()
 const nums = areas.map((a) => Number(a.replace(/[^\d]/g, ''))).filter((n) => n > 0)
 check('table sorts descending by area', nums.every((n, i) => i === 0 || nums[i - 1] >= n), nums.slice(0, 5).join(','))
 
