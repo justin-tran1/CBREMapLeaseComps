@@ -5,7 +5,7 @@ import { formatDateISO } from '../lib/coerce'
 import { shapeAreaLabel, shapeLabel } from '../lib/geometry'
 import { fmtCompact } from '../lib/format'
 import { IconChevronRight, IconFilter, IconSearch, IconX } from './Icons'
-import type { Filters, NumericRange } from '../types'
+import type { DateRange, Filters, NumericRange } from '../types'
 
 // --------------------------------------------------------------- primitives
 
@@ -121,6 +121,66 @@ function RangeField({ value, bounds, step = 1, prefix = '', suffix = '', onChang
         />
       </div>
       <span className="range-hint">{hint}</span>
+    </>
+  )
+}
+
+interface DateRangeFieldProps {
+  /** Drives the input labels, so a screen reader hears which date it is editing. */
+  label: string
+  value: DateRange
+  bounds: DateRange
+  emptyHint: string
+  onChange: (next: DateRange) => void
+}
+
+/** A from/to date pair, the span present in the data, and the presets. */
+function DateRangeField({ label, value, bounds, emptyHint, onChange }: DateRangeFieldProps) {
+  return (
+    <>
+      <div className="range-row">
+        <input
+          className="input"
+          type="date"
+          value={value.start ?? ''}
+          max={value.end ?? undefined}
+          onChange={(e) => onChange({ ...value, start: e.target.value || null })}
+          aria-label={`${label} from`}
+        />
+        <span className="range-row__dash">to</span>
+        <input
+          className="input"
+          type="date"
+          value={value.end ?? ''}
+          min={value.start ?? undefined}
+          onChange={(e) => onChange({ ...value, end: e.target.value || null })}
+          aria-label={`${label} to`}
+        />
+      </div>
+      <span className="range-hint">
+        {bounds.start ? `Data range ${bounds.start} to ${bounds.end}` : emptyHint}
+      </span>
+      <div className="chiprow">
+        {DATE_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => onChange(preset.range())}
+          >
+            {preset.label}
+          </button>
+        ))}
+        {(value.start || value.end) && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => onChange({ start: null, end: null })}
+          >
+            Clear
+          </button>
+        )}
+      </div>
     </>
   )
 }
@@ -263,7 +323,7 @@ export function FilterRail({ open, onToggle }: FilterRailProps) {
     )
   }
 
-  const dateActive = (filters.leaseDate.start ? 1 : 0) + (filters.leaseDate.end ? 1 : 0)
+  const dateActive = (d: DateRange) => (d.start ? 1 : 0) + (d.end ? 1 : 0)
   const rangeActive = (r: NumericRange) => (r.min !== null ? 1 : 0) + (r.max !== null ? 1 : 0)
 
   return (
@@ -354,56 +414,32 @@ export function FilterRail({ open, onToggle }: FilterRailProps) {
           />
         </Section>
 
-        <Section title="Lease date" activeCount={dateActive} defaultOpen>
-          <div className="range-row">
-            <input
-              className="input"
-              type="date"
-              value={filters.leaseDate.start ?? ''}
-              max={filters.leaseDate.end ?? undefined}
-              onChange={(e) =>
-                patch({ leaseDate: { ...filters.leaseDate, start: e.target.value || null } })
-              }
-              aria-label="Lease date from"
-            />
-            <span className="range-row__dash">to</span>
-            <input
-              className="input"
-              type="date"
-              value={filters.leaseDate.end ?? ''}
-              min={filters.leaseDate.start ?? undefined}
-              onChange={(e) =>
-                patch({ leaseDate: { ...filters.leaseDate, end: e.target.value || null } })
-              }
-              aria-label="Lease date to"
-            />
-          </div>
+        <Section title="Lease date" activeCount={dateActive(filters.leaseDate)} defaultOpen>
+          <DateRangeField
+            label="Lease date"
+            value={filters.leaseDate}
+            bounds={bounds.leaseDate}
+            emptyHint="No lease dates in this dataset"
+            onChange={(leaseDate) => patch({ leaseDate })}
+          />
           <span className="range-hint">
-            {bounds.leaseDate.start
-              ? `Data range ${bounds.leaseDate.start} to ${bounds.leaseDate.end}`
-              : 'No lease dates in this dataset'}
+            When the lease commences. Filter on when it was signed in the next section.
           </span>
-          <div className="chiprow">
-            {DATE_PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => patch({ leaseDate: preset.range() })}
-              >
-                {preset.label}
-              </button>
-            ))}
-            {dateActive > 0 && (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => patch({ leaseDate: { start: null, end: null } })}
-              >
-                Clear
-              </button>
-            )}
-          </div>
+        </Section>
+
+        <Section title="Signed date" activeCount={dateActive(filters.executionDate)}>
+          <DateRangeField
+            label="Signed date"
+            value={filters.executionDate}
+            bounds={bounds.executionDate}
+            emptyHint="No signed dates in this dataset"
+            onChange={(executionDate) => patch({ executionDate })}
+          />
+          <span className="range-hint">
+            The Signed Date column: when the deal was executed, which the popup shows as the
+            execution date and the table as Executed. A deal signed in one quarter often
+            commences in another, so the two filters answer different questions and combine.
+          </span>
         </Section>
 
         <Section title="Area leased (SF)" activeCount={rangeActive(filters.areaLeased)}>

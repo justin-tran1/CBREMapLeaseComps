@@ -175,6 +175,7 @@ Both tabs share one filter rail:
 - Keyword across every field
 - City and state
 - Lease date, with presets for the last 12 months, 24 months, three years, and year to date
+- Signed date, the same presets on the `Signed Date` column
 - Area leased range
 - Term length range
 - Base rent range
@@ -187,6 +188,13 @@ Both tabs share one filter rail:
 Option counts next to each city and lease type ignore that filter's own selection, so
 ticking one city does not zero out the rest. Active filters appear as chips that clear
 individually.
+
+**Lease date and signed date are separate filters** and they combine. Lease date is
+commencement, the `Start Date` column, and it is what the timeline charts bucket on. Signed
+date is the `Signed Date` column, the same date the popup labels execution date and the
+table labels Executed. A deal signed in one quarter routinely commences in another, so
+"signed this year" and "commencing this year" are different sets: in the sample data, ten
+deals were signed from January 2025 and fifteen commenced from January 2025.
 
 A range filter keeps only rows that carry a value for that measure. Blanks drop out while
 the filter is on, which the field coverage panel accounts for.
@@ -217,10 +225,10 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 260 assertions
+npm run test:units               # terminal 2, 271 assertions
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 74 end-to-end checks
+npm run test:e2e                 # terminal 2, 82 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk

@@ -409,6 +409,51 @@ await page.waitForTimeout(600)
 check('clear all restores every row', (await page.locator('.rail__scroll .small.muted').first().innerText()).includes('74 of 74'))
 check('all pins back', (await page.locator('.pin-wrap').count()) === 32)
 
+/*
+ * Signed Date filters on its own column. In the sample, 10 deals were signed on or after
+ * 2025-01-01 while 15 commenced on or after that date, so a count of 10 is what proves the
+ * filter reads Signed Date rather than the commencement date sitting next to it.
+ */
+await openSection('fsection-signed-date')
+await page.locator('#fsection-signed-date input[aria-label="Signed date from"]').fill('2025-01-01')
+await page.waitForTimeout(700)
+check('signed date chip appears', await page.locator('.chip', { hasText: 'Signed date: from 2025-01-01' }).isVisible())
+const afterSigned = (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
+check('signed date filter narrows the set', afterSigned.startsWith('10 of 74'), afterSigned)
+const signedPins = await page.locator('.pin-wrap').count()
+check('map reflects the signed date filter', signedPins > 0 && signedPins < 32, `${signedPins} pins`)
+
+await page.getByRole('tab', { name: 'Dashboard' }).click()
+await page.waitForTimeout(800)
+check(
+  'dashboard reflects the signed date filter',
+  (await page.locator('.kpi__value').first().innerText()).trim() === '10',
+  await page.locator('.kpi__value').first().innerText(),
+)
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(700)
+
+/*
+ * The two date filters combine rather than overwrite. Signed from 2025-01-01 keeps 10 and
+ * commencing from 2025-04-01 keeps 11, but together they keep 9 — a count that matches
+ * neither filter alone, so both are demonstrably applied.
+ */
+await openSection('fsection-lease-date')
+await page.locator('#fsection-lease-date input[aria-label="Lease date from"]').fill('2025-04-01')
+await page.waitForTimeout(700)
+const bothDates = (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
+check('lease date and signed date filter together', bothDates.startsWith('9 of 74'), bothDates)
+check('both date chips shown', (await page.locator('.chip', { hasText: 'date: from' }).count()) === 2)
+
+await page.locator('.chip', { hasText: 'Lease date: from 2025-04-01' }).locator('.chip__x').click()
+await page.waitForTimeout(600)
+const signedOnly = (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
+check('clearing one date chip leaves the other', signedOnly.startsWith('10 of 74'), signedOnly)
+
+await page.getByRole('button', { name: 'Clear all filters' }).click()
+await page.waitForTimeout(600)
+check('clearing all restores every row after the date filters', (await page.locator('.pin-wrap').count()) === 32)
+
 // -------------------------------------------------------------- 10. drawing
 await page.getByRole('button', { name: 'Zoom to results' }).click()
 await page.waitForTimeout(1400)

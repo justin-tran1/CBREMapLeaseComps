@@ -15,6 +15,7 @@ export function emptyFilters(): Filters {
     leaseTypes: [],
     propertySubtypes: [],
     leaseDate: { start: null, end: null },
+    executionDate: { start: null, end: null },
     areaLeased: emptyRange(),
     termMonths: emptyRange(),
     baseRent: emptyRange(),
@@ -54,22 +55,24 @@ function spread(values: (number | null)[]): NumericRange {
   return { min, max }
 }
 
-export function computeBounds(deals: LeaseDeal[]): RangeBounds {
-  const dates = deals.map((d) => d.leaseDate).filter((d): d is Date => d instanceof Date)
-  let start: string | null = null
-  let end: string | null = null
-  if (dates.length) {
-    const times = dates.map((d) => d.getTime())
-    start = formatDateISO(new Date(Math.min(...times)))
-    end = formatDateISO(new Date(Math.max(...times)))
+/** Earliest and latest date present, as ISO strings, for the "data range" hints. */
+function dateSpan(values: (Date | null)[]): DateRange {
+  const times = values.filter((d): d is Date => d instanceof Date).map((d) => d.getTime())
+  if (times.length === 0) return { start: null, end: null }
+  return {
+    start: formatDateISO(new Date(Math.min(...times))),
+    end: formatDateISO(new Date(Math.max(...times))),
   }
+}
 
+export function computeBounds(deals: LeaseDeal[]): RangeBounds {
   return {
     areaLeased: spread(deals.map((d) => d.areaLeased)),
     termMonths: spread(deals.map((d) => d.termMonths)),
     baseRent: spread(deals.map((d) => d.baseRentAnnual)),
     freeRent: spread(deals.map((d) => d.freeRent)),
-    leaseDate: { start, end },
+    leaseDate: dateSpan(deals.map((d) => d.leaseDate)),
+    executionDate: dateSpan(deals.map((d) => d.executionDate)),
   }
 }
 
@@ -155,6 +158,7 @@ export function applyFilters(deals: LeaseDeal[], filters: Filters): LeaseDeal[] 
     if (!matchesAny(deal.propertySubtype, filters.propertySubtypes)) return false
 
     if (!inDateRange(deal.leaseDate, filters.leaseDate)) return false
+    if (!inDateRange(deal.executionDate, filters.executionDate)) return false
     if (!inNumericRange(deal.areaLeased, filters.areaLeased)) return false
     if (!inNumericRange(deal.termMonths, filters.termMonths)) return false
     if (!inNumericRange(deal.baseRentAnnual, filters.baseRent)) return false
@@ -215,11 +219,19 @@ export function describeActiveFilters(filters: Filters): ActiveFilterChip[] {
   listChip('leaseTypes', 'Lease type')
   listChip('propertySubtypes', 'Subtype')
 
-  if (filters.leaseDate.start || filters.leaseDate.end) {
-    const { start, end } = filters.leaseDate
-    const label = start && end ? `${start} to ${end}` : start ? `from ${start}` : `through ${end}`
-    chips.push({ id: 'leaseDate', label: `Lease date: ${label}`, clear: (f) => ({ ...f, leaseDate: { start: null, end: null } }) })
+  const dateChip = (key: 'leaseDate' | 'executionDate', label: string): void => {
+    const { start, end } = filters[key]
+    if (!start && !end) return
+    const span = start && end ? `${start} to ${end}` : start ? `from ${start}` : `through ${end}`
+    chips.push({
+      id: key,
+      label: `${label}: ${span}`,
+      clear: (f) => ({ ...f, [key]: { start: null, end: null } }),
+    })
   }
+
+  dateChip('leaseDate', 'Lease date')
+  dateChip('executionDate', 'Signed date')
 
   const rangeChip = (
     key: 'areaLeased' | 'termMonths' | 'baseRent' | 'freeRent',

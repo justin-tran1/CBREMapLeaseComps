@@ -417,6 +417,44 @@ const results = await page.evaluate(async () => {
   eq('term range', filters.applyFilters(withCoords, { ...f, termMonths: { min: null, max: 60 } }).length, 1)
   eq('base rent range uses annualised', filters.applyFilters(withCoords, { ...f, baseRent: { min: 20, max: null } }).length, 1)
   eq('date range', filters.applyFilters(withCoords, { ...f, leaseDate: { start: '2024-01-01', end: '2024-06-30' } }).length, 1)
+
+  // Signed date is its own filter: a deal signed in one quarter often commences in another.
+  const signed = [
+    { ...withCoords[0], executionDate: new Date(2023, 10, 27) },  // 2023-11-27, commences 2024-01-05
+    { ...withCoords[1], executionDate: new Date(2024, 8, 3) },    // 2024-09-03
+  ]
+  eq('signed date range: from', filters.applyFilters(signed, { ...f, executionDate: { start: '2024-01-01', end: null } }).length, 1)
+  eq('signed date range: through', filters.applyFilters(signed, { ...f, executionDate: { start: null, end: '2023-12-31' } }).length, 1)
+  eq('signed date range: both ends', filters.applyFilters(signed, { ...f, executionDate: { start: '2023-01-01', end: '2024-12-31' } }).length, 2)
+  eq('signed date range: no overlap', filters.applyFilters(signed, { ...f, executionDate: { start: '2025-01-01', end: null } }).length, 0)
+  eq('signed date is independent of lease date',
+    filters.applyFilters(signed, {
+      ...f,
+      leaseDate: { start: '2024-01-01', end: '2024-06-30' },
+      executionDate: { start: null, end: '2023-12-31' },
+    }).length, 1)
+  eq('lease date and signed date can exclude each other',
+    filters.applyFilters(signed, {
+      ...f,
+      leaseDate: { start: '2024-01-01', end: '2024-06-30' },
+      executionDate: { start: '2024-01-01', end: null },
+    }).length, 0)
+  eq('signed date filter drops rows with no signed date',
+    filters.applyFilters(withCoords, { ...f, executionDate: { start: '2000-01-01', end: null } }).length, 0)
+  eq('signed date bounds span the data',
+    [filters.computeBounds(signed).executionDate.start, filters.computeBounds(signed).executionDate.end],
+    ['2023-11-27', '2024-09-03'])
+  eq('signed date bounds are blank without the column',
+    filters.computeBounds(withCoords).executionDate, { start: null, end: null })
+  eq('signed date raises a chip',
+    filters.describeActiveFilters({ ...f, executionDate: { start: '2024-01-01', end: null } })[0].label,
+    'Signed date: from 2024-01-01')
+  eq('clearing the signed date chip leaves lease date alone', (() => {
+    const active = { ...f, leaseDate: { start: '2024-01-01', end: null }, executionDate: { start: '2024-02-01', end: null } }
+    const chip = filters.describeActiveFilters(active).find((c) => c.id === 'executionDate')
+    const cleared = chip.clear(active)
+    return [cleared.executionDate, cleared.leaseDate]
+  })(), [{ start: null, end: null }, { start: '2024-01-01', end: null }])
   eq('free rent range drops blanks', filters.applyFilters(withCoords, { ...f, freeRent: { min: 1, max: null } }).length, 1)
   eq('keyword search', filters.applyFilters(withCoords, { ...f, search: 'austin' }).length, 2)
   eq('keyword search multi-term', filters.applyFilters(withCoords, { ...f, search: '1 A St' }).length, 1)

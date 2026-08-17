@@ -230,6 +230,8 @@ export interface Filters {
   leaseTypes: string[]
   propertySubtypes: string[]
   leaseDate: DateRange
+  /** The Signed Date column: when the deal was executed, not when it commenced. */
+  executionDate: DateRange
   areaLeased: NumericRange
   termMonths: NumericRange
   baseRent: NumericRange
@@ -245,6 +247,7 @@ export interface RangeBounds {
   baseRent: NumericRange
   freeRent: NumericRange
   leaseDate: DateRange
+  executionDate: DateRange
 }
 
 export interface FacetOptions {
