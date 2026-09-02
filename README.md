@@ -25,6 +25,10 @@ Each report also includes:
 - **Daily Digest.** Every report ends with a high-level summary of the day: article and category counts, the lead story per category, the largest dollar/headcount/square-footage figures of the day, and any discrepancy flags.
 - **Article images.** Each story card in the HTML report carries the image that best fits the article. The publisher's own choice (the og:image/twitter:image tag) is used first, then feed media, then in-article photos ranked by how well their alt text matches the headline and by size and position. Logos, ads, icons, and tracking pixels are excluded, and an image is dropped whenever the fetched page fails the headline match check. Images are linked from the source site by default; `--embed-images` downloads them into the HTML file so the report is self-contained for emailing, and `--no-images` produces a text-only brief.
 
+### Design
+
+The HTML brief follows the CBRE design system: a CBRE Green masthead carrying the official white wordmark, Financier Display for display headings and Calibre for body text (falling back to Georgia and Arial where those typefaces are not installed), the brand primary and secondary palettes, and the brand status colors for the consistency tags. Copy follows CBRE's AP-modified editorial style: numbers one through nine spelled out, times written as 2:04 p.m. PT, and dates written as August 17, 2026. Every color pairing in the report meets WCAG AA contrast.
+
 ### Requirements
 
 Python 3.9 or newer. No packages to install; the script uses only the standard library.
@@ -58,7 +62,7 @@ Each run writes three timestamped reports to `news_reports/` (gitignored):
 --no-images             leave article images out of the reports
 --ai                    use Claude for key points, consistency notes,
                         and the digest (needs ANTHROPIC_API_KEY)
---ai-model MODEL        model for --ai (default: claude-opus-5;
+--ai-model MODEL        model for --ai (default: claude-fable-5-1;
                         claude-haiku-4-5 is a cheaper option)
 --list-sources          print every query and feed, then exit
 --insecure              skip TLS verification (only if a corporate proxy
@@ -70,7 +74,7 @@ Failed sources never abort a run; the summary and reports list them so you know 
 
 ### Optional AI mode
 
-By default the script is fully self-contained. With `--ai` and an `ANTHROPIC_API_KEY` environment variable set, Claude writes the key points and the digest and adds a second opinion to the consistency checks. The script calls the Anthropic API directly over HTTPS, so there is still nothing to install, and it enables server-side refusal fallbacks by default. If the API call fails for any reason, the run completes with the built-in summaries instead.
+By default the script is fully self-contained. With `--ai` and an `ANTHROPIC_API_KEY` environment variable set, Claude Fable 5.1 writes the key points and the digest and adds a second opinion to the consistency checks. The script calls the Anthropic API directly over HTTPS, so there is still nothing to install, and it enables server-side refusal fallbacks by default. Fable models require an Anthropic account on 30-day data retention; if that or any other API call fails, the run completes with the built-in summaries instead. Pass `--ai-model claude-haiku-4-5` for a lower-cost option.
 
 ```
 set ANTHROPIC_API_KEY=sk-ant-...          (Windows)

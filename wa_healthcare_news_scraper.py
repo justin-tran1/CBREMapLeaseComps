@@ -36,11 +36,16 @@ How it works
    chrome, logos, ads, and tracking pixels are excluded).
 7. Ends every report with a Daily Digest: a high-level summary of the
    day's coverage across all categories.
-8. Writes Markdown, HTML, and JSON reports grouped by category.
+8. Writes Markdown, HTML, and JSON reports grouped by category. The HTML
+   brief follows the CBRE design system: the CBRE Green masthead with the
+   official wordmark, Financier Display and Calibre typography, the brand
+   primary/secondary/status palettes, and AP-modified editorial style for
+   dates, times and numbers.
 
 Requires only the Python 3.9+ standard library -- no pip installs.
-The optional --ai mode calls the Anthropic API directly over HTTPS and
-needs only the ANTHROPIC_API_KEY environment variable.
+The optional --ai mode calls the Anthropic API directly over HTTPS
+(default model: Claude Fable 5.1) and needs only the ANTHROPIC_API_KEY
+environment variable.
 
 Usage
 -----
@@ -74,7 +79,7 @@ from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "2.0.0"
 USER_AGENT = (
     "Mozilla/5.0 (compatible; WAHealthcareNewsScraper/" + VERSION + "; "
     "+https://github.com/justin-tran1/CBREMapLeaseComps)"
@@ -91,9 +96,78 @@ MAX_ARTICLE_BYTES = 900_000  # cap per-page download size
 # over HTTPS to keep this script dependency-free. The official `anthropic`
 # SDK is the normal way to integrate; this project deliberately avoids
 # pip installs so its single-file, run-anywhere design holds.
+# Default model is Claude Fable 5.1. Fable-family models keep thinking on
+# at all times (so no `thinking` parameter is sent), take server-side
+# refusal fallbacks, and require an account on 30-day data retention;
+# any API error falls back to the built-in extractive summaries.
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_AI_MODEL = "claude-opus-5"
+DEFAULT_AI_MODEL = "claude-fable-5-1"
+
+# Official CBRE wordmark (white, for the CBRE Green masthead),
+# embedded so the generated brief is a single self-contained file.
+# Brand rules: never stretch, recolor, or add effects; keep clear
+# space around it; render at least 1.5 inches wide.
+CBRE_LOGO_WHITE_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAVIAAABVCAYAAAAbp2zjAAAAGXRFWHRTb2Z0d2FyZQBB"
+    "ZG9iZSBJbWFnZVJlYWR5ccllPAAAAyVpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/"
+    "eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+"
+    "IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2Jl"
+    "IFhNUCBDb3JlIDYuMC1jMDA1IDc5LjE2NDU5MCwgMjAyMC8xMi8wOS0xMTo1Nzo0NCAg"
+    "ICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5"
+    "LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9"
+    "IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4"
+    "bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9"
+    "Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHht"
+    "cDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDIyLjEgKE1hY2ludG9zaCkiIHht"
+    "cE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6NzE1N0U2QTAwNUQ4MTFFQzk1NjNFMzI1RjBD"
+    "M0VDMUIiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6NzE1N0U2QTEwNUQ4MTFFQzk1"
+    "NjNFMzI1RjBDM0VDMUIiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJ"
+    "RD0ieG1wLmlpZDo3MTU3RTY5RTA1RDgxMUVDOTU2M0UzMjVGMEMzRUMxQiIgc3RSZWY6"
+    "ZG9jdW1lbnRJRD0ieG1wLmRpZDo3MTU3RTY5RjA1RDgxMUVDOTU2M0UzMjVGMEMzRUMx"
+    "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"
+    "Fzo4I/4TYACDM5txd21m3AAAAABJRU5ErkJggg=="
+)
 
 # ---------------------------------------------------------------------------
 # Geography: Washington State / Puget Sound signals
@@ -1358,8 +1432,8 @@ def assess_consistency(cluster):
     unique_sources = list(dict.fromkeys(sources))
     if len(unique_sources) < 2:
         return {"verdict": "single-source",
-                "details": ["Only %s reported this story in this scan; "
-                            "details not yet corroborated elsewhere."
+                "details": ["Only %s reported this story in this scan. "
+                            "Details are not yet corroborated elsewhere."
                             % primary.source]}
     primary_facts = extract_facts(" ".join(
         [primary.title, primary.summary, primary.article_text]))
@@ -1372,10 +1446,60 @@ def assess_consistency(cluster):
     if conflicts:
         seen = list(dict.fromkeys(conflicts))
         return {"verdict": "discrepancy", "details": seen}
+    named = unique_sources[:5]
+    if len(named) > 1:
+        source_list = ", ".join(named[:-1]) + " and " + named[-1]
+    else:
+        source_list = named[0]
     return {"verdict": "corroborated",
-            "details": ["Details consistent across %d sources: %s"
-                        % (len(unique_sources),
-                           ", ".join(unique_sources[:5]))]}
+            "details": ["Consistent across %s sources: %s."
+                        % (spell_count(len(unique_sources)), source_list)]}
+
+
+# ---------------------------------------------------------------------------
+# CBRE editorial formatting (AP-modified style used across CBRE writing)
+# ---------------------------------------------------------------------------
+
+_AP_MONTHS = {1: "Jan.", 2: "Feb.", 3: "March", 4: "April", 5: "May",
+              6: "June", 7: "July", 8: "Aug.", 9: "Sept.", 10: "Oct.",
+              11: "Nov.", 12: "Dec."}
+_NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six",
+                 "seven", "eight", "nine"]
+
+
+def spell_count(n, capitalize=False):
+    """AP style: spell out zero through nine, numerals from 10 up."""
+    text = _NUMBER_WORDS[n] if 0 <= n <= 9 else "{:,}".format(n)
+    return text[0].upper() + text[1:] if capitalize else text
+
+
+def plural(n, singular, plural_form=None):
+    return singular if n == 1 else (plural_form or singular + "s")
+
+
+def ap_time(dt):
+    """5 p.m. at the top of the hour, otherwise 5:22 p.m."""
+    hour = dt.hour % 12 or 12
+    suffix = "a.m." if dt.hour < 12 else "p.m."
+    if dt.minute == 0:
+        return "%d %s" % (hour, suffix)
+    return "%d:%02d %s" % (hour, dt.minute, suffix)
+
+
+def ap_date(dt, weekday=False, abbreviated=False, year=True):
+    month = _AP_MONTHS[dt.month] if abbreviated else dt.strftime("%B")
+    text = "%s %d" % (month, dt.day)
+    if year:
+        text += ", %d" % dt.year
+    if weekday:
+        text = "%s, %s" % (dt.strftime("%A"), text)
+    return text
+
+
+def ap_stamp(dt):
+    """Compact stamp for article meta lines: Aug. 17, 2:04 p.m. PT"""
+    return "%s, %s PT" % (ap_date(dt, abbreviated=True, year=False),
+                          ap_time(dt))
 
 
 # ---------------------------------------------------------------------------
@@ -1406,36 +1530,48 @@ def build_digest(grouped, hours):
     overview and takeaways with model-written text.
     """
     articles = [a for _k, _t, arts in grouped for a in arts]
+    hours_text = spell_count(hours)
     if not articles:
         return {
             "method": "template",
-            "overview": ("No qualifying Washington State / Puget Sound "
-                         "healthcare news was found in the past %d hours."
-                         % hours),
+            "overview": ("No qualifying Washington State or Puget Sound "
+                         "healthcare news was found in the past %s hours."
+                         % hours_text),
             "category_lines": [],
             "notables": [],
         }
     counts = consistency_counts(articles)
     biggest_cat = max(grouped, key=lambda g: len(g[2]))
+    n_articles, n_cats = len(articles), len(grouped)
     parts = [
-        "This scan found %d qualifying article%s across %d categor%s in "
-        "the past %d hours." % (
-            len(articles), "s" if len(articles) != 1 else "",
-            len(grouped), "ies" if len(grouped) != 1 else "y", hours),
+        "This scan found %s qualifying %s across %s %s in the past %s "
+        "hours." % (spell_count(n_articles), plural(n_articles, "article"),
+                    spell_count(n_cats),
+                    plural(n_cats, "category", "categories"), hours_text)
     ]
     if len(biggest_cat[2]) >= 2:
-        parts.append("The most active category is %s with %d articles." % (
-            biggest_cat[1], len(biggest_cat[2])))
-    parts.append(
-        "%d stor%s corroborated by multiple outlets, %d single-source, "
-        "and %d with conflicting details flagged." % (
-            counts["corroborated"],
-            "ies are" if counts["corroborated"] != 1 else "y is",
-            counts["single-source"], counts["discrepancy"]))
+        parts.append("The most active category is %s with %s articles." % (
+            biggest_cat[1], spell_count(len(biggest_cat[2]))))
+    corr, single, disc = (counts["corroborated"], counts["single-source"],
+                          counts["discrepancy"])
+
+    def stories(n, capitalize=False):
+        if n == 0:
+            return ("No" if capitalize else "no") + " stories are"
+        return "%s %s %s" % (spell_count(n, capitalize),
+                             plural(n, "story", "stories"),
+                             "is" if n == 1 else "are")
+
+    parts.append("%s corroborated by multiple outlets, %s single-source "
+                 "and %s flagged for conflicting details." % (
+                     stories(corr, capitalize=True), stories(single),
+                     stories(disc)))
     category_lines = []
     for _key, title, arts in grouped:
         lead = max(arts, key=lambda a: a.score)
-        extra = "; plus %d more" % (len(arts) - 1) if len(arts) > 1 else ""
+        extra = ""
+        if len(arts) > 1:
+            extra = ", plus %s more" % spell_count(len(arts) - 1)
         category_lines.append("%s (%d): %s (%s)%s" % (
             title, len(arts), lead.title, lead.source, extra))
     notables = []
@@ -1666,11 +1802,13 @@ def relative_age(published, now):
     if minutes < 1:
         return "just now"
     if minutes < 60:
-        return "%d min ago" % minutes
+        return "%s %s ago" % (spell_count(minutes),
+                              plural(minutes, "minute"))
     hours = minutes // 60
     if hours < 48:
-        return "%d hr ago" % hours
-    return "%d days ago" % (hours // 24)
+        return "%s %s ago" % (spell_count(hours), plural(hours, "hour"))
+    days = hours // 24
+    return "%s %s ago" % (spell_count(days), plural(days, "day"))
 
 
 def group_by_category(articles, max_per_category):
@@ -1686,29 +1824,39 @@ def group_by_category(articles, max_per_category):
     return result
 
 
+def _consistency_sentence(art):
+    verdict = (art.consistency or {}).get("verdict")
+    if not verdict:
+        return "", ""
+    details = " ".join(art.consistency.get("details", []))
+    return VERDICT_LABELS.get(verdict, verdict), details
+
+
 def render_markdown(grouped, meta):
+    now_local = meta["now"].astimezone(meta["tz"])
     lines = [
-        "# Washington State & Puget Sound Healthcare News",
+        "# Washington State Healthcare News Brief",
         "",
-        "**Window:** past %d hours (since %s)  " % (
-            meta["hours"], meta["since_local"]),
-        "**Generated:** %s  " % meta["generated_local"],
-        "**Articles:** %d kept from %d fetched, %d/%d sources responded" % (
-            meta["kept"], meta["fetched"],
+        "%s · Past %s hours · Generated %s PT  " % (
+            ap_date(now_local, weekday=True), spell_count(meta["hours"]),
+            ap_time(now_local)),
+        "%s %s kept from %s fetched. Sources responding: %d of %d.  " % (
+            spell_count(meta["kept"], capitalize=True),
+            plural(meta["kept"], "article"), "{:,}".format(meta["fetched"]),
             meta["sources_ok"], meta["sources_total"]),
         "",
     ]
     if not grouped:
-        lines.append("_No matching articles found in this window._")
+        lines.append("_No qualifying articles were found in this window._")
     for _key, title, arts in grouped:
         lines.append("## %s (%d)" % (title, len(arts)))
         lines.append("")
         for art in arts:
             local = art.published.astimezone(meta["tz"])
-            when = "%s (%s)" % (local.strftime("%a %b %d, %I:%M %p %Z"),
-                                relative_age(art.published, meta["now"]))
             lines.append("- **[%s](%s)**  " % (art.title, art.url))
-            lines.append("  %s · %s  " % (art.source, when))
+            lines.append("  %s · %s · %s  " % (
+                art.source, ap_stamp(local),
+                relative_age(art.published, meta["now"])))
             if art.image:
                 lines.append("  ![%s](%s)  " % (
                     (art.image.get("alt") or art.title).replace("]", ")"),
@@ -1717,12 +1865,9 @@ def render_markdown(grouped, meta):
                 lines.append("  - %s" % point)
             if not art.key_points and art.summary:
                 lines.append("  %s" % art.summary)
-            verdict = (art.consistency or {}).get("verdict")
-            if verdict:
-                details = "; ".join(art.consistency.get("details", []))
-                lines.append("  Consistency: **[%s]** %s  "
-                             % (VERDICT_LABELS.get(verdict, verdict),
-                                details))
+            label, details = _consistency_sentence(art)
+            if label:
+                lines.append("  Consistency: **%s.** %s  " % (label, details))
             if art.corroborators:
                 lines.append("  Also reported by: %s  " % ", ".join(
                     "[%s](%s)" % (c["source"], c["url"])
@@ -1733,150 +1878,180 @@ def render_markdown(grouped, meta):
     lines.append("## Daily Digest")
     lines.append("")
     if meta.get("ai_used"):
-        lines.append("_Key points and digest written by Claude (--ai); "
-                     "consistency checks are keyword/figure based._")
+        lines.append("_Key points and digest written by Claude (--ai). "
+                     "Consistency checks compare extracted figures._")
         lines.append("")
     lines.append(digest.get("overview", ""))
     lines.append("")
     if digest.get("category_lines"):
-        lines.append("**By category:**")
+        lines.append("**By category**")
         for line in digest["category_lines"]:
             lines.append("- %s" % line)
         lines.append("")
     if digest.get("notables"):
-        lines.append("**Notable figures and flags:**")
+        lines.append("**Notable figures and flags**")
         for note in digest["notables"]:
             lines.append("- %s" % note)
         lines.append("")
+    lines.append("---")
+    lines.append("Compiled automatically from the linked outlets for "
+                 "internal use. Verify figures before sharing with clients.")
     failures = [s for s in meta["source_results"] if not s.ok]
     if failures:
-        lines.append("---")
+        lines.append("")
         lines.append("**Sources that failed:** " + "; ".join(
             "%s (%s)" % (s.label, s.error) for s in failures))
-        lines.append("")
+    lines.append("")
     return "\n".join(lines)
 
 
+# CBRE design system tokens (CBRE brand reference: primary, secondary and
+# status palettes; Financier Display for display headings, Calibre for body).
+# Fonts fall back to Georgia / Arial where the CBRE typefaces are not
+# installed, exactly as the brand guide specifies.
 _HTML_CSS = """
-:root { --green:#003F2D; --accent:#17E88F; --ink:#1a1a1a; --muted:#5f6b66;
-        --bg:#f4f6f5; --card:#ffffff; --line:#dfe5e2; }
-* { box-sizing:border-box; margin:0; padding:0; }
-body { font:15px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,
-       sans-serif; color:var(--ink); background:var(--bg); padding:24px; }
-.wrap { max-width:860px; margin:0 auto; }
-header { background:var(--green); color:#fff; border-radius:10px;
-         padding:22px 26px; margin-bottom:22px; }
-header h1 { font-size:21px; font-weight:700; }
-header .sub { color:#cfe8dd; font-size:13px; margin-top:6px; }
-header .sub b { color:var(--accent); font-weight:600; }
-section { margin-bottom:26px; }
-h2 { font-size:16px; color:var(--green); border-bottom:2px solid
-     var(--accent); padding-bottom:6px; margin-bottom:12px; }
-h2 .count { background:var(--green); color:#fff; border-radius:10px;
-            font-size:11px; padding:2px 9px; vertical-align:2px;
-            margin-left:8px; }
-.card { background:var(--card); border:1px solid var(--line);
-        border-left:4px solid var(--accent); border-radius:8px;
-        padding:13px 16px; margin-bottom:10px; display:flex; gap:14px;
-        align-items:flex-start; }
-.card-body { flex:1; min-width:0; }
-.thumb { width:150px; height:100px; object-fit:cover; border-radius:6px;
-         flex:none; margin-top:2px; background:#eef0ef; }
-@media (max-width:600px) { .thumb { width:96px; height:72px; } }
-.card a.title { color:var(--green); font-weight:600; font-size:15px;
-                text-decoration:none; }
-.card a.title:hover { text-decoration:underline; }
-.meta { color:var(--muted); font-size:12.5px; margin-top:4px; }
-.meta .src { background:#e7f2ec; color:var(--green); border-radius:8px;
-             padding:1px 8px; margin-right:8px; font-weight:600; }
-.summary { font-size:13.5px; margin-top:7px; color:#333; }
-.points { margin:8px 0 0 18px; font-size:13.5px; color:#333; }
-.points li { margin-bottom:3px; }
-.consistency { font-size:12.5px; margin-top:8px; color:var(--muted); }
-.chip { border-radius:8px; padding:1px 8px; font-weight:600;
-        margin-right:6px; white-space:nowrap; }
-.chip-ok { background:#e7f2ec; color:#00593f; }
-.chip-single { background:#eef0ef; color:#5f6b66; }
-.chip-warn { background:#fdeee4; color:#8a4b00; }
-.also { font-size:12.5px; margin-top:5px; color:var(--muted); }
-.also a { color:var(--green); }
-.digest { background:var(--card); border:1px solid var(--line);
-          border-top:4px solid var(--green); border-radius:8px;
-          padding:18px 20px; }
-.digest h2 { border:none; padding-bottom:2px; }
-.digest p { font-size:14px; margin:8px 0 12px; }
-.digest h3 { font-size:13px; color:var(--green); margin:12px 0 6px; }
-.digest ul { margin-left:18px; font-size:13.5px; }
-.digest li { margin-bottom:4px; }
-.ai-note { font-size:12px; color:var(--muted); font-style:italic; }
-.empty { background:var(--card); border:1px dashed var(--line);
-         border-radius:8px; padding:24px; text-align:center;
-         color:var(--muted); }
-footer { color:var(--muted); font-size:12px; margin-top:26px; }
-details { margin-top:8px; }
-details summary { cursor:pointer; }
-@media print { body { background:#fff; padding:0; }
-               .card { break-inside:avoid; } }
+:root{
+  --cbre-green:#003F2D; --accent-green:#17E88F; --dark-green:#012A2D;
+  --dark-grey:#435254; --light-grey:#CAD1D3; --celadon:#80BBAD;
+  --celadon-tint:#C0D4CB; --cement:#7F8480; --row-alt:#F5F7F7;
+  --wheat-tint:#EFECD2; --positive-bg:#E6F4EC; --positive-fg:#28573C;
+  --negative-bg:#FBEEEE; --negative-fg:#A03530;
+  --font-display:"Financier Display",Georgia,"Times New Roman",serif;
+  --font-body:Calibre,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.5 var(--font-body);color:var(--dark-grey);background:#fff}
+.page{max-width:920px;margin:0 auto;padding:0 32px 48px}
+.masthead{background:var(--cbre-green);color:#fff;padding:30px 36px 28px;
+  margin:28px 0 26px}
+.wordmark{height:38px;width:auto;display:block;margin-bottom:26px}
+.eyebrow{font-weight:600;font-size:12px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--accent-green);margin-bottom:10px}
+.masthead h1{font:400 34px/1.15 var(--font-display);color:#fff;
+  margin-bottom:12px}
+.dateline{font-size:14px;color:var(--celadon-tint)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
+  margin-bottom:30px}
+.kpi{border:1px solid var(--light-grey);border-top:3px solid var(--cbre-green);
+  padding:14px 16px 12px;background:#fff}
+.kpi-value{font:400 30px/1 var(--font-display);color:var(--cbre-green)}
+.kpi-label{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dark-grey);margin-top:8px}
+h2.section{font:400 24px/1.2 var(--font-display);color:var(--cbre-green);
+  margin:30px 0 4px;padding-bottom:8px;border-bottom:1.5px solid var(--cbre-green);
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+h2.section .count{font:400 12px/1 var(--font-body);color:var(--dark-grey);
+  letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.story{display:flex;gap:20px;align-items:flex-start;padding:20px 0;
+  border-bottom:1px solid var(--light-grey)}
+.story-body{flex:1;min-width:0}
+.thumb{flex:none;width:168px;height:112px;object-fit:cover;display:block;
+  background:var(--row-alt)}
+.headline{font:700 17px/1.3 var(--font-body);margin-bottom:6px}
+.headline a{color:var(--cbre-green);text-decoration:none}
+.headline a:hover{text-decoration:underline}
+.meta{font-size:13px;color:var(--dark-grey)}
+.source{font-weight:700;font-size:11.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--cbre-green)}
+.points{margin:10px 0 0 18px;font-size:14.5px;color:var(--dark-grey)}
+.points li{margin-bottom:4px}
+.points li::marker{color:var(--cbre-green)}
+.summary{margin-top:8px;font-size:14.5px}
+.verdict{margin-top:10px;font-size:13px;color:var(--dark-grey);
+  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.tag{display:inline-block;padding:2px 8px;font-weight:700;font-size:11px;
+  line-height:1.5;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:2px;white-space:nowrap}
+.tag-ok{background:var(--positive-bg);color:var(--positive-fg)}
+.tag-single{background:var(--row-alt);color:var(--dark-grey);
+  border:1px solid var(--light-grey)}
+.tag-warn{background:var(--negative-bg);color:var(--negative-fg)}
+.also{font-size:13px;margin-top:6px;color:var(--dark-grey)}
+.also a{color:var(--cbre-green)}
+.digest{margin-top:40px;background:var(--positive-bg);
+  border-left:4px solid var(--accent-green);padding:24px 28px}
+.digest h2{font:400 24px/1.2 var(--font-display);color:var(--cbre-green);
+  margin-bottom:12px}
+.digest .lead{font-size:16px;line-height:1.5;color:var(--cbre-green);
+  margin-bottom:14px}
+.digest h3{font-weight:700;font-size:12.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--dark-grey);margin:16px 0 6px}
+.digest ul{margin-left:18px;font-size:14px}
+.digest li{margin-bottom:4px}
+.digest li.flag{color:var(--negative-fg)}
+.ai-note{font-size:12.5px;font-style:italic;color:var(--dark-grey);
+  margin-bottom:10px}
+.empty{padding:28px;border:1px dashed var(--light-grey);text-align:center;
+  color:var(--dark-grey)}
+footer{margin-top:36px;padding-top:14px;border-top:1px solid var(--light-grey);
+  font-size:12.5px;color:var(--dark-grey)}
+footer details{margin-top:8px}
+footer summary{cursor:pointer}
+@media (max-width:640px){
+  .page{padding:0 18px 36px}
+  .masthead{padding:26px 22px;margin-top:18px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .story{flex-direction:column}
+  .thumb{width:100%;height:180px}
+}
+@media print{
+  body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{padding:0}
+  .masthead{margin-top:0}
+  .story,.kpi,.digest{break-inside:avoid}
+  .headline a{color:var(--cbre-green)}
+}
 """
+
+_TAG_CLASSES = {"corroborated": ("tag-ok", "✓ Corroborated"),
+                "single-source": ("tag-single", "○ Single source"),
+                "discrepancy": ("tag-warn", "! Discrepancy")}
 
 
 def render_html(grouped, meta):
     esc = html_lib.escape
+    now_local = meta["now"].astimezone(meta["tz"])
+    counts = meta.get("consistency_counts", {})
     parts = [
         "<!DOCTYPE html>",
-        '<html lang="en"><head><meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        "<title>WA Healthcare News — %s</title>" % esc(meta["date_label"]),
-        "<style>%s</style></head><body><div class='wrap'>" % _HTML_CSS,
-        "<header><h1>Washington State &amp; Puget Sound Healthcare News</h1>",
-        "<div class='sub'>Past <b>%d hours</b> · generated %s · "
-        "<b>%d</b> articles · %d/%d sources responded</div></header>" % (
-            meta["hours"], esc(meta["generated_local"]), meta["kept"],
-            meta["sources_ok"], meta["sources_total"]),
+        "<html lang='en'><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+        "<title>WA Healthcare News Brief · %s</title>" % esc(
+            ap_date(now_local, abbreviated=True)),
+        "<style>%s</style></head><body><div class='page'>" % _HTML_CSS,
+        "<header class='masthead'>",
+        "<img class='wordmark' src='data:image/png;base64,%s' alt='CBRE' "
+        "width='151' height='38'>" % CBRE_LOGO_WHITE_B64,
+        "<div class='eyebrow'>Puget Sound Healthcare · Medical Office · "
+        "Life Sciences</div>",
+        "<h1>Washington State Healthcare News Brief</h1>",
+        "<div class='dateline'>%s · Past %s hours · Generated %s PT</div>" % (
+            esc(ap_date(now_local, weekday=True)), spell_count(meta["hours"]),
+            esc(ap_time(now_local))),
+        "</header>",
+        "<section class='kpis' aria-label='At a glance'>",
     ]
+    for value, label in (
+            (meta["kept"], plural(meta["kept"], "Article")),
+            (counts.get("corroborated", 0), "Corroborated"),
+            (counts.get("single-source", 0), "Single source"),
+            (counts.get("discrepancy", 0),
+             plural(counts.get("discrepancy", 0), "Discrepancy",
+                    "Discrepancies"))):
+        parts.append("<div class='kpi'><div class='kpi-value'>%d</div>"
+                     "<div class='kpi-label'>%s</div></div>" % (value, label))
+    parts.append("</section><main>")
     if not grouped:
-        parts.append("<div class='empty'>No matching articles were found "
+        parts.append("<div class='empty'>No qualifying articles were found "
                      "in this window. Try a longer --hours window.</div>")
     for _key, title, arts in grouped:
-        parts.append("<section><h2>%s<span class='count'>%d</span></h2>" % (
-            esc(title), len(arts)))
+        parts.append("<section><h2 class='section'>%s<span class='count'>"
+                     "%d %s</span></h2>" % (
+                         esc(title), len(arts), plural(len(arts), "article")))
         for art in arts:
             local = art.published.astimezone(meta["tz"])
-            when = "%s · %s" % (local.strftime("%a %b %d, %I:%M %p %Z"),
-                                relative_age(art.published, meta["now"]))
-            parts.append("<div class='card'><div class='card-body'>")
-            parts.append("<a class='title' href='%s' target='_blank' "
-                         "rel='noopener'>%s</a>" % (
-                             esc(art.url, quote=True), esc(art.title)))
-            parts.append("<div class='meta'><span class='src'>%s</span>"
-                         "%s</div>" % (esc(art.source), esc(when)))
-            if art.key_points:
-                parts.append("<ul class='points'>%s</ul>" % "".join(
-                    "<li>%s</li>" % esc(p) for p in art.key_points))
-            elif art.summary:
-                parts.append("<div class='summary'>%s</div>"
-                             % esc(art.summary))
-            verdict = (art.consistency or {}).get("verdict")
-            if verdict:
-                chip_class = {"corroborated": "chip-ok",
-                              "single-source": "chip-single",
-                              "discrepancy": "chip-warn"}.get(
-                                  verdict, "chip-single")
-                details = "; ".join(art.consistency.get("details", []))
-                parts.append(
-                    "<div class='consistency'><span class='chip %s'>%s"
-                    "</span>%s</div>" % (
-                        chip_class,
-                        esc(VERDICT_LABELS.get(verdict, verdict)),
-                        esc(details)))
-            if art.corroborators:
-                links = ", ".join(
-                    "<a href='%s' target='_blank' rel='noopener'>%s</a>" % (
-                        esc(c["url"], quote=True), esc(c["source"]))
-                    for c in art.corroborators[:4])
-                parts.append("<div class='also'>Also reported by: %s</div>"
-                             % links)
-            parts.append("</div>")  # /card-body
+            parts.append("<article class='story%s'>"
+                         % ("" if art.image else " no-thumb"))
             if art.image:
                 src = art.image.get("data_uri") or art.image["url"]
                 parts.append(
@@ -1885,33 +2060,65 @@ def render_html(grouped, meta):
                     "onerror=\"this.style.display='none'\">" % (
                         esc(src, quote=True),
                         esc(art.image.get("alt") or art.title, quote=True)))
-            parts.append("</div>")
+            parts.append("<div class='story-body'>")
+            parts.append("<h3 class='headline'><a href='%s' target='_blank' "
+                         "rel='noopener'>%s</a></h3>" % (
+                             esc(art.url, quote=True), esc(art.title)))
+            parts.append("<div class='meta'><span class='source'>%s</span>"
+                         " · %s · %s</div>" % (
+                             esc(art.source), esc(ap_stamp(local)),
+                             esc(relative_age(art.published, meta["now"]))))
+            if art.key_points:
+                parts.append("<ul class='points'>%s</ul>" % "".join(
+                    "<li>%s</li>" % esc(p) for p in art.key_points))
+            elif art.summary:
+                parts.append("<div class='summary'>%s</div>"
+                             % esc(art.summary))
+            verdict = (art.consistency or {}).get("verdict")
+            if verdict:
+                tag_class, tag_text = _TAG_CLASSES.get(
+                    verdict, ("tag-single", VERDICT_LABELS.get(verdict,
+                                                                verdict)))
+                details = " ".join(art.consistency.get("details", []))
+                parts.append("<div class='verdict'><span class='tag %s'>%s"
+                             "</span><span>%s</span></div>" % (
+                                 tag_class, esc(tag_text), esc(details)))
+            if art.corroborators:
+                links = ", ".join(
+                    "<a href='%s' target='_blank' rel='noopener'>%s</a>" % (
+                        esc(c["url"], quote=True), esc(c["source"]))
+                    for c in art.corroborators[:4])
+                parts.append("<div class='also'>Also reported by: %s</div>"
+                             % links)
+            parts.append("</div></article>")
         parts.append("</section>")
 
     digest = meta.get("digest") or {}
     parts.append("<section class='digest'><h2>Daily Digest</h2>")
     if meta.get("ai_used"):
-        parts.append("<div class='ai-note'>Key points and digest written "
-                     "by Claude (--ai); consistency checks are "
-                     "keyword/figure based.</div>")
-    parts.append("<p>%s</p>" % esc(digest.get("overview", "")))
+        parts.append("<div class='ai-note'>Key points and digest written by "
+                     "Claude (--ai). Consistency checks compare extracted "
+                     "figures.</div>")
+    parts.append("<p class='lead'>%s</p>" % esc(digest.get("overview", "")))
     if digest.get("category_lines"):
         parts.append("<h3>By category</h3><ul>%s</ul>" % "".join(
-            "<li>%s</li>" % esc(line)
-            for line in digest["category_lines"]))
+            "<li>%s</li>" % esc(line) for line in digest["category_lines"]))
     if digest.get("notables"):
-        parts.append("<h3>Notable figures and flags</h3><ul>%s</ul>"
-                     % "".join("<li>%s</li>" % esc(note)
-                               for note in digest["notables"]))
-    parts.append("</section>")
+        parts.append("<h3>Notable figures and flags</h3><ul>%s</ul>" % "".join(
+            "<li%s>%s</li>" % (
+                " class='flag'" if note.startswith("Verify before") else "",
+                esc(note))
+            for note in digest["notables"]))
+    parts.append("</section></main>")
     failures = [s for s in meta["source_results"] if not s.ok]
-    parts.append("<footer>Generated by wa_healthcare_news_scraper.py v%s."
-                 % VERSION)
+    parts.append("<footer>Compiled automatically from the linked outlets for "
+                 "internal use. Verify figures before sharing with clients. "
+                 "Generated by wa_healthcare_news_scraper.py v%s." % VERSION)
     if failures:
-        parts.append("<details><summary>%d source(s) failed</summary><ul>"
-                     % len(failures))
+        parts.append("<details><summary>%d source(s) did not respond"
+                     "</summary><ul>" % len(failures))
         for s in failures:
-            parts.append("<li>%s — %s</li>" % (esc(s.label), esc(s.error)))
+            parts.append("<li>%s: %s</li>" % (esc(s.label), esc(s.error)))
         parts.append("</ul></details>")
     parts.append("</footer></div></body></html>")
     return "\n".join(parts)
@@ -2158,10 +2365,13 @@ def run(args, fetcher=http_get):
         "now": now,
         "tz": tz,
         "hours": args.hours,
-        "since_local": cutoff.astimezone(tz).strftime("%a %b %d, %I:%M %p %Z"),
-        "generated_local": now.astimezone(tz).strftime(
-            "%a %b %d %Y, %I:%M %p %Z"),
-        "date_label": now.astimezone(tz).strftime("%b %d, %Y"),
+        "since_local": "%s, %s PT" % (
+            ap_date(cutoff.astimezone(tz), abbreviated=True),
+            ap_time(cutoff.astimezone(tz))),
+        "generated_local": "%s, %s PT" % (
+            ap_date(now.astimezone(tz), weekday=True),
+            ap_time(now.astimezone(tz))),
+        "date_label": ap_date(now.astimezone(tz), abbreviated=True),
         "kept": kept,
         "fetched": fetched_count,
         "sources_ok": sum(1 for s in source_results if s.ok),

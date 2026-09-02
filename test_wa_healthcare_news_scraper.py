@@ -421,7 +421,7 @@ class TestPipeline(unittest.TestCase):
                              if p.suffix == ".html").read_text("utf-8")
             self.assertIn("MultiCare opens new medical office building",
                           html_text)
-            self.assertIn("Puget Sound Healthcare News", html_text)
+            self.assertIn("Washington State Healthcare News Brief", html_text)
             data = json.loads(next(p for p in written
                                    if p.suffix == ".json").read_text("utf-8"))
             self.assertEqual(data["article_count"], len(data["articles"]))
@@ -757,8 +757,9 @@ class TestDigest(unittest.TestCase):
 
     def test_digest_contents(self):
         digest = scraper.build_digest(self._grouped(), 24)
-        self.assertIn("2 qualifying articles", digest["overview"])
-        self.assertIn("1 story is corroborated", digest["overview"])
+        self.assertIn("two qualifying articles", digest["overview"])
+        self.assertIn("One story is corroborated", digest["overview"])
+        self.assertIn("past 24 hours", digest["overview"])
         self.assertEqual(len(digest["category_lines"]), 2)
         self.assertIn("Medical Office (1)", digest["category_lines"][0])
         notables = " | ".join(digest["notables"])
@@ -937,8 +938,17 @@ class TestEnrichedPipeline(unittest.TestCase):
             md_text = next(p for p in written
                            if p.suffix == ".md").read_text("utf-8")
             self.assertIn("## Daily Digest", md_text)
-            self.assertIn("Consistency: **[", md_text)
+            self.assertIn("Consistency: **", md_text)
             self.assertIn("![", md_text)
+            # CBRE editorial style: AP times and spelled-out small numbers.
+            self.assertRegex(md_text, r"\d{1,2}(:\d{2})? [ap]\.m\. PT")
+            self.assertIn("Five articles kept", md_text)
+            # Brand masthead with the embedded wordmark and design tokens.
+            self.assertIn("class='wordmark'", html_text)
+            self.assertIn("data:image/png;base64,", html_text)
+            self.assertIn("#003F2D", html_text)
+            self.assertIn("Financier Display", html_text)
+            self.assertIn("class='kpi'", html_text)
             data = json.loads(next(p for p in written
                                    if p.suffix == ".json").read_text("utf-8"))
             self.assertIn("digest", data)
