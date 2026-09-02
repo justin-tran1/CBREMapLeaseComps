@@ -153,7 +153,9 @@ would put the deal on a neighbor.
 
 Pins work the same way and stay visible at every zoom. Both carry a count when an address
 holds several deals, and opening one of those shows a picker first. Choose a deal to see
-its terms, then step between deals with the arrows in the footer or return to the list.
+its terms, then step between deals with the arrows in the footer or return to the list. When
+a card would run past the edge of the map, the map pans by the overrun so the whole card
+stays in view.
 
 Drag with the right mouse button to rotate and tilt, or use the compass control. The **3D
 buildings** button drops the map flat and back again.
@@ -317,11 +319,11 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 395 assertions
+npm run test:units               # terminal 2, 405 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 122 end-to-end checks
+npm run test:e2e                 # terminal 2, 115 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk

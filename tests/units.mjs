@@ -42,6 +42,7 @@ const results = await page.evaluate(async () => {
   const chartPrefs = await import('/src/lib/chartPrefs.ts')
   const basemaps = await import('/src/lib/basemaps.ts')
   const google3d = await import('/src/components/GoogleMap3D.tsx')
+  const mapTab = await import('/src/components/MapTab.tsx')
 
   // ------------------------------------------------------------ toNumber
   eq('toNumber $1,234.56', coerce.toNumber('$1,234.56'), 1234.56)
@@ -695,6 +696,23 @@ const results = await page.evaluate(async () => {
   eq('a non-boolean grid setting is ignored', chartPrefs.parseChartPrefs({ showGrid: 'yes' }).showGrid, true)
   eq('nothing stored yields the defaults', chartPrefs.parseChartPrefs(null), chartPrefs.DEFAULT_CHART_PREFS)
   truthy('compact charts are shorter', chartPrefs.densityScale('compact') < chartPrefs.densityScale('comfortable'))
+
+  // ---- popup cards stay on the map
+  const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
+  const mapBox = rect(0, 100, 1600, 1000)
+  eq('a card inside the map needs no pan', mapTab.popupOverrun(rect(600, 300, 960, 860), mapBox), null)
+  eq('a card past the bottom pans the map down by the overrun plus the margin', mapTab.popupOverrun(rect(600, 500, 960, 1100), mapBox), [0, 108])
+  eq('a card past the top pans the map up', mapTab.popupOverrun(rect(600, 40, 960, 600), mapBox), [0, -68])
+  eq('a card past the right edge pans sideways', mapTab.popupOverrun(rect(1400, 300, 1700, 860), mapBox), [108, 0])
+  eq('a card taller than the map is brought to the bottom edge first', mapTab.popupOverrun(rect(600, 50, 960, 1300), mapBox), [0, 308])
+  const toolbar = rect(1200, 112, 1590, 156)
+  const status = rect(10, 930, 420, 990)
+  const edges = (box) => [box.top, box.bottom, box.left, box.right]
+  eq('with no overlays the whole map is room', edges(mapTab.popupRoom(mapBox, [], rect(600, 300, 960, 860))), edges(mapBox))
+  eq('a toolbar over the card takes its band off the top', mapTab.popupRoom(mapBox, [toolbar, status], rect(1300, 120, 1560, 600)).top, 156)
+  eq('a status card under the card takes its band off the bottom', mapTab.popupRoom(mapBox, [toolbar, status], rect(100, 300, 400, 990)).bottom, 930)
+  eq('overlays in other columns cost nothing', edges(mapTab.popupRoom(mapBox, [toolbar, status], rect(600, 300, 960, 860))), edges(mapBox))
+  eq('a card beneath the toolbar pans down past it', mapTab.popupOverrun(rect(1300, 120, 1560, 600), mapTab.popupRoom(mapBox, [toolbar], rect(1300, 120, 1560, 600))), [0, -44])
 
   // ------------------------------------------------- geocode provider parsing
   const realFetch = window.fetch

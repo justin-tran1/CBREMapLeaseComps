@@ -58,6 +58,71 @@ const US_ZOOM = 3.4
 const MAX_ZOOM = 19.5
 const PITCH_3D = 55
 
+/** Keep this much of the map visible around a popup card. */
+const POPUP_EDGE_PAD = 8
+
+/** The edges of a rectangle on screen; a DOMRect is one. */
+export interface Box {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+/**
+ * How far a popup card runs past the edges of the room it has, as the pan that brings it back.
+ *
+ * MapLibre chooses which side of the pin to open on, but when the card is taller than the room
+ * on either side it simply overruns the bottom. The first half of a tall card is then the only
+ * half a reader can reach. Returns null when the card is fully in view.
+ */
+export function popupOverrun(card: Box, room: Box, pad = POPUP_EDGE_PAD): [number, number] | null {
+  let dx = 0
+  let dy = 0
+  if (card.bottom > room.bottom - pad) dy = card.bottom - (room.bottom - pad)
+  else if (card.top < room.top + pad) dy = card.top - (room.top + pad)
+  if (card.right > room.right - pad) dx = card.right - (room.right - pad)
+  else if (card.left < room.left + pad) dx = card.left - (room.left + pad)
+  return dx === 0 && dy === 0 ? null : [dx, dy]
+}
+
+/**
+ * The room a card has on the map: the container less the app's own overlays (the toolbars and
+ * the status card) that share the card's columns. Those sit above the popup, so a card under
+ * one loses its close button or its footer. Overlays in other columns do not cost the card
+ * anything.
+ */
+export function popupRoom(mapBox: Box, overlays: Box[], card: Box): Box {
+  let top = mapBox.top
+  let bottom = mapBox.bottom
+  const midline = (mapBox.top + mapBox.bottom) / 2
+  for (const overlay of overlays) {
+    if (overlay.right <= overlay.left || overlay.bottom <= overlay.top) continue
+    if (overlay.right <= card.left || overlay.left >= card.right) continue
+    if ((overlay.top + overlay.bottom) / 2 < midline) top = Math.max(top, overlay.bottom)
+    else bottom = Math.min(bottom, overlay.top)
+  }
+  return { top, bottom: Math.max(top, bottom), left: mapBox.left, right: mapBox.right }
+}
+
+/** Pan the map just enough that the whole popup card is in view and clear of the overlays. */
+function revealPopup(map: MapLibreMap, popup: Popup) {
+  const run = () => {
+    const element = popup.getElement()
+    if (!element || !popup.isOpen()) return
+    const container = map.getContainer()
+    const card = element.getBoundingClientRect()
+    const overlays = Array.from(container.parentElement?.querySelectorAll('.map-overlay') ?? []).map((el) =>
+      el.getBoundingClientRect(),
+    )
+    const shift = popupOverrun(card, popupRoom(container.getBoundingClientRect(), overlays, card))
+    if (shift) map.panBy(shift, { duration: 220 })
+  }
+  // Measuring mid-animation would pan against a view that is still changing.
+  if (map.isMoving()) map.once('moveend', run)
+  else run()
+}
+
 /** Buildings only exist in the tiles from this zoom, so matching runs no earlier. */
 const BUILDING_MIN_ZOOM = 15
 /** Cap the per-idle building sweep so a dense viewport cannot stall the frame. */
@@ -179,6 +244,8 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
   const markersRef = useRef(new Map<string, { marker: Marker; count: number; selected: boolean }>())
   const popupRef = useRef<Popup | null>(null)
   const popupHostRef = useRef<HTMLDivElement | null>(null)
+  /** The site whose popup has been positioned and panned into view. */
+  const revealedSiteRef = useRef<string | null>(null)
   const selectionRef = useRef<Selection | null>(null)
   const didFitRef = useRef(false)
   const wasGeocodingRef = useRef(false)
@@ -687,19 +754,27 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
     if (!selectedSite) {
       if (popup.isOpen()) popup.remove()
       setActiveFootprint(null)
+      revealedSiteRef.current = null
       return
     }
 
     popup.setLngLat([selectedSite.lon, selectedSite.lat])
     if (!popup.isOpen()) popup.addTo(map)
+    revealPopup(map, popup)
+    revealedSiteRef.current = selectedSite.id
   }, [ready, selectedSite, setActiveFootprint])
 
   useLayoutEffect(() => {
+    const map = mapRef.current
     const popup = popupRef.current
-    if (!selectedSite || !popup?.isOpen()) return
+    if (!map || !selectedSite || !popup?.isOpen()) return
+    // A newly chosen site is positioned and revealed by the effect above, which runs after
+    // this one; this effect only handles the card changing height under the same pin.
+    if (revealedSiteRef.current !== selectedSite.id) return
     // Swapping the picker for the detail view changes the height, and MapLibre only
     // re-measures on a position change, so re-set the anchor it already has.
     popup.setLngLat(popup.getLngLat())
+    revealPopup(map, popup)
   }, [selectedSite, selectedDeal])
 
   // ---------------------------------------------------------- view fitting

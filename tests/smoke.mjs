@@ -285,6 +285,39 @@ await page.locator('.pop__back').click()
 await page.waitForTimeout(200)
 check('back returns to picker', (await page.locator('.pop__pickitem').count()) === pickCount)
 
+// A pin in the middle of the map has room for the card neither above nor below it, so
+// MapLibre opens it downward and off the bottom. Drag the pin to the map's vertical centre,
+// choose a deal, and the map must pan the card fully into view.
+await page.locator('.maplibregl-popup-close-button').click()
+await page.waitForTimeout(200)
+{
+  const mapBox = await page.locator('.mapcanvas').boundingBox()
+  const pinBox = await pins.nth(multiIdx).boundingBox()
+  const dy = mapBox.y + mapBox.height / 2 - (pinBox.y + pinBox.height)
+  const cx = mapBox.x + mapBox.width / 2 + 160
+  const cy = mapBox.y + mapBox.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx, cy + dy, { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(500)
+  await pins.nth(multiIdx).dispatchEvent('click')
+  await page.locator('.pop__pickitem').first().waitFor({ timeout: 5000 })
+  await page.locator('.pop__pickitem').first().click()
+  await page.locator('.pop__key').first().waitFor({ timeout: 4000 })
+  await page.waitForTimeout(700)
+  const card = await page.locator('.maplibregl-popup').boundingBox()
+  const box = await page.locator('.mapcanvas').boundingBox()
+  check(
+    'a tall card at a mid-map pin is panned fully into view',
+    card.height > 400 && card.y >= box.y - 1 && card.y + card.height <= box.y + box.height + 1,
+    `card ${Math.round(card.y)} to ${Math.round(card.y + card.height)} tall ${Math.round(card.height)}, map ${Math.round(box.y)} to ${Math.round(box.y + box.height)}`,
+  )
+  // Put the view back so the sections below find every pin where they expect it.
+  await page.locator('button[title="Zoom the map to the deals currently showing"]').click()
+  await page.waitForTimeout(900)
+}
+
 // -------------------------------------------------------------- 5. search
 await page.locator('.maplibregl-popup-close-button').click()
 await page.waitForTimeout(200)

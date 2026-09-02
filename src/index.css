@@ -1454,6 +1454,12 @@ h1, h2, h3, h4 {
 
 /* --------------------------------------------------------------- popup UI */
 
+/* A card panned to a corner must sit above the scale and attribution controls (z-index 2),
+   or their boxes swallow clicks on its footer. */
+.maplibregl-popup {
+  z-index: 3;
+}
+
 .maplibregl-popup-content {
   border-radius: var(--radius) !important;
   padding: 0 !important;
