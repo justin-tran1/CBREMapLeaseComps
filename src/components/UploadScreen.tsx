@@ -180,7 +180,7 @@ export function UploadScreen() {
               <div className="card__title">Columns the tool looks for</div>
               <div className="card__subtitle">
                 Headers are matched automatically. Anything it gets wrong is a dropdown away on the
-                next screen, and columns it does not recognise are kept with the row.
+                next screen, and columns it does not recognize are kept with the row.
               </div>
             </div>
           </div>

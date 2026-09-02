@@ -220,16 +220,6 @@ export const IconTrash = ({ size = 16, className, style }: IconProps) => (
   </svg>
 )
 
-export const CbreLogo = ({ size = 22 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden focusable="false" className="topbar__logo">
-    <rect width="32" height="32" rx="6" fill="#17e88f" />
-    <path
-      d="M16 6.2c-3.9 0-7.1 3.2-7.1 7.1 0 5.3 7.1 12.5 7.1 12.5s7.1-7.2 7.1-12.5c0-3.9-3.2-7.1-7.1-7.1Zm0 9.7a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2Z"
-      fill="#003f2d"
-    />
-  </svg>
-)
-
 export const IconCube = ({ size = 16, className, style }: IconProps) => (
   <svg {...base(size)} className={className} style={style}>
     <path d="m12 2.8 8 4.4v9.6l-8 4.4-8-4.4V7.2z" />

@@ -31,11 +31,22 @@ export interface ChartTheme {
   axis: string
   ink: string
   inkMuted: string
+  /** Axis label colour: the brand guide's chart grey, quieter than body text. */
+  tick: string
+  /** Axis labels and legends are set condensed, as CBRE's dense tables are. */
+  fontCondensed: string
   surface: string
   dark: boolean
   /** The presentation choices from the dashboard's chart settings. */
   prefs: ChartPrefs
 }
+
+/*
+ * CBRE's chart rules, from the brand reference: light dashed gridlines in CCD9D5 on the
+ * value axis only, small grey axis labels in 767676 with no axis lines or tick marks, and
+ * legends at the foot. The dark surface keeps the same roles at values that read on green.
+ */
+const CHART_FONT_CONDENSED = "'Barlow Condensed', 'Arial Narrow', Arial, sans-serif"
 
 export function useChartTheme(dark: boolean, prefs: ChartPrefs = DEFAULT_CHART_PREFS): ChartTheme {
   return useMemo(
@@ -48,19 +59,22 @@ export function useChartTheme(dark: boolean, prefs: ChartPrefs = DEFAULT_CHART_P
             axis: '#35604f',
             ink: '#ffffff',
             inkMuted: '#96b3b6',
+            tick: '#96b3b6',
             surface: '#0f2b23',
             dark: true,
           }
         : {
             series: '#003f2d',
             seriesSoft: 'rgba(0,63,45,0.12)',
-            grid: '#e4e9e8',
+            grid: '#ccd9d5',
             axis: '#cad1d3',
-            ink: '#012a2d',
+            ink: '#435254',
             inkMuted: '#7f8480',
+            tick: '#767676',
             surface: '#ffffff',
             dark: false,
           }),
+      fontCondensed: CHART_FONT_CONDENSED,
       prefs,
     }),
     [dark, prefs],
@@ -191,11 +205,11 @@ export function CategoryBars({
 }: CategoryBarsProps) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} layout="vertical" margin={{ top: 2, right: 54, bottom: 2, left: 0 }} barCategoryGap="22%">
-        <CartesianGrid horizontal={false} stroke={gridStroke(theme)} />
+      <BarChart data={data} layout="vertical" margin={{ top: 2, right: 54, bottom: 2, left: 0 }} barCategoryGap="30%">
+        <CartesianGrid horizontal={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
           type="number"
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           tickFormatter={formatValue}
           axisLine={false}
           tickLine={false}
@@ -204,7 +218,7 @@ export function CategoryBars({
           type="category"
           dataKey="name"
           width={labelWidth}
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.ink, fontSize: 12, fontFamily: theme.fontCondensed }}
           axisLine={false}
           tickLine={false}
           interval={0}
@@ -254,19 +268,21 @@ export function StackedColumns({
   const colorFor = (key: string, index: number) =>
     key === OTHER_LABEL ? theme.inkMuted : colorForIndex(index, theme.dark, theme.prefs.palette)
 
+  // Recharts takes barCategoryGap off both sides of a band, so 30% leaves a 40% bar, which is
+  // the brand reference's Excel gap width of 150 (a gap one and a half times the bar).
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="18%">
-        <CartesianGrid vertical={false} stroke={gridStroke(theme)} />
+      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="30%">
+        <CartesianGrid vertical={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
           dataKey="label"
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           axisLine={false}
           tickLine={false}
           minTickGap={4}
         />
         <YAxis
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           tickFormatter={axisFormat ?? formatValue}
           axisLine={false}
           tickLine={false}
@@ -363,13 +379,13 @@ export function TrendLine({
         <CartesianGrid vertical={false} stroke={theme.grid} />
         <XAxis
           dataKey="label"
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           axisLine={false}
           tickLine={false}
           minTickGap={4}
         />
         <YAxis
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           tickFormatter={formatValue}
           axisLine={false}
           tickLine={false}
@@ -418,18 +434,18 @@ interface HistogramProps {
 export function Histogram({ data, theme, unitLabel }: HistogramProps) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="12%">
-        <CartesianGrid vertical={false} stroke={gridStroke(theme)} />
+      <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="20%">
+        <CartesianGrid vertical={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
           dataKey="label"
-          tick={{ fill: theme.inkMuted, fontSize: 10 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           axisLine={false}
           tickLine={false}
           interval="preserveStartEnd"
           minTickGap={2}
         />
         <YAxis
-          tick={{ fill: theme.inkMuted, fontSize: 11 }}
+          tick={{ fill: theme.tick, fontSize: 11, fontFamily: theme.fontCondensed }}
           axisLine={false}
           tickLine={false}
           width={38}

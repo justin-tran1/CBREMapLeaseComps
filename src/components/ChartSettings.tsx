@@ -120,7 +120,7 @@ export function ChartSettings({ prefs, setPref, reset, isDefault, dark }: ChartS
                     {palette.label}
                     <span className="basemap__sub">{palette.description}</span>
                     <span className="basemap__sub">
-                      Closest pair: ΔE {cvd} colour-vision, {normal} normal
+                      Closest pair: ΔE {cvd} color-vision, {normal} normal
                     </span>
                   </span>
                   {palette.id === prefs.palette && <IconCheck size={14} />}
@@ -170,7 +170,7 @@ export function ChartSettings({ prefs, setPref, reset, isDefault, dark }: ChartS
 
           <div className="cset__foot">
             <span className="range-hint">
-              Saved in this browser. Colour never carries meaning on its own here: every
+              Saved in this browser. Color never carries meaning on its own here: every
               multi-series chart keeps its legend and its tooltips, and the table below carries
               the same numbers.
             </span>

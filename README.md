@@ -97,7 +97,7 @@ the map is allowed to say about it:
 | Rooftop | The building itself | Yes |
 | Address point | A point for the property | No |
 | Street interpolation | Guessed from the house-number range along the street centerline | No |
-| Approximate | A street, locality or postcode centre | No |
+| Approximate | A street, locality or postcode center | No |
 
 The providers, in the order the automatic setting tries them:
 
@@ -113,7 +113,7 @@ The providers, in the order the automatic setting tries them:
 
 The chain keeps the **most precise** answer rather than the first one. This matters: with the
 Census leading and first-answer-wins, every US address settled for a street interpolation even
-when Photon held the actual building, and that is what put comps on their neighbours' buildings.
+when Photon held the actual building, and that is what put comps on their neighbors' buildings.
 
 Results are cached in the browser, so re-uploading the same book costs no lookups, and deals
 sharing an address are looked up once rather than once per row.
@@ -148,8 +148,8 @@ is where the footprints exist in the underlying data.
 
 The green solid is the whole of the target: the click area is that one building's footprint
 and nothing around it. Where a deal's building cannot be identified with confidence, no
-building is coloured in and the pin is the way to the deal, because colouring in a guess
-would put the deal on a neighbour.
+building is colored in and the pin is the way to the deal, because coloring in a guess
+would put the deal on a neighbor.
 
 Pins work the same way and stay visible at every zoom. Both carry a count when an address
 holds several deals, and opening one of those shows a picker first. Choose a deal to see
@@ -247,7 +247,7 @@ The **Chart settings** button on the dashboard changes how the charts are drawn:
 | Height | Comfortable, compact |
 
 Choices are saved in the browser. Nothing here can change what a chart *means*: the palettes
-are fixed and ordered so a series keeps its colour when the set is filtered, every multi-series
+are fixed and ordered so a series keeps its color when the set is filtered, every multi-series
 chart keeps its legend and tooltips, and there is no option for a second y-axis or a generated
 hue.
 
@@ -321,7 +321,7 @@ npm run test:units               # terminal 2, 395 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 118 end-to-end checks
+npm run test:e2e                 # terminal 2, 122 end-to-end checks
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
@@ -332,7 +332,7 @@ containment and choice, draw geometry, the brand palette, formatting, filtering,
 geocoding precision grading, the Google response parser and place-id click resolution, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
 practice's export schema land on the right field. `tests/maplayers.mjs` asks the map itself which
-footprints the sweep coloured in and which boundary segments the filters admitted, which the DOM
+footprints the sweep colored in and which boundary segments the filters admitted, which the DOM
 cannot show and which is where this has gone wrong before; it needs the dev server, where the map
 is published on `window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
@@ -361,7 +361,7 @@ click area on the subject building:
 
 - **The comp's own coordinate must be rooftop-grade.** This one comes first because the other
   four cannot survive a bad coordinate: applied to a point sitting in the roadway they will
-  faithfully name whichever neighbour the interpolation drifted towards. See the geocoding
+  faithfully name whichever neighbor the interpolation drifted towards. See the geocoding
   section above.
 - **The query goes to a flat layer, never the 3D one.** Hit-testing an extrusion tests the
   whole solid, walls and roof included, so on a tilted map the building whose facade covers
@@ -369,8 +369,8 @@ click area on the subject building:
   ground can be hidden behind it. An invisible flat copy of the building layer answers in
   ground space, where a comp's coordinate lives. It is never drawn, only queried.
 - **Only the part of a feature the comp actually stands in is used.** Vector tile generators
-  union neighbouring buildings into a single multi-part feature, so one feature can carry
-  twenty footprints scattered across a neighbourhood. Highlighting the feature highlights all
+  union neighboring buildings into a single multi-part feature, so one feature can carry
+  twenty footprints scattered across a neighborhood. Highlighting the feature highlights all
   twenty for one deal, which is what turned whole blocks green.
 - **The smallest footprint containing the coordinate wins.** OpenStreetMap routinely maps a
   medical campus or a whole block as one polygon with the individual buildings nested inside
@@ -378,11 +378,11 @@ click area on the subject building:
 - **Nothing above 40,000 m² is accepted**, which is a 200 m square: enough for a large
   hospital podium and not for a campus or a land parcel. The test is applied to the single
   part, never to a union's total, since a union of small buildings is individually small while
-  covering a neighbourhood.
+  covering a neighborhood.
 
 A footprint that fails these tests is left grey rather than approximated, and clicks only
 ever go to footprints that passed. The highlight itself is grown by 35 cm and its roof lifted
-by half a metre, because two solids sharing a surface exactly leave the depth buffer nothing
+by half a meter, because two solids sharing a surface exactly leave the depth buffer nothing
 to decide with, and the result is grey speckling through the green.
 
 `tests/smoke.mjs` puts a 1.3 km campus polygon around the fixture building and asserts that
@@ -391,7 +391,7 @@ feature and asserts that exactly one of them turns green and that clicking the o
 nothing, and serves boundary segments at four administrative levels to prove each outline takes
 in the segments shared with a lower level and leaves the maritime one alone.
 
-Comps located less precisely than rooftop are reachable by their pin and colour in nothing,
+Comps located less precisely than rooftop are reachable by their pin and color in nothing,
 and the map says how many are in that state rather than leaving the absence looking like a
 fault.
 
@@ -403,7 +403,7 @@ terrain, textures and buildings baked into one continuous model, with no per-bui
 in it at all, so nothing can be picked out of the mesh geometrically. Instead Google reports a
 **place id** for the place clicked, and the Google geocoder records a place id for every comp,
 so a click is resolved by comparing two identifiers. No footprint, no polygon-size rule, no
-neighbour to get wrong.
+neighbor to get wrong.
 
 Its limits are worth stating. A comp geocoded without a key has no place id, and Google may
 report a place the comp set has never heard of; both fall back to the nearest comp within 90 m
@@ -418,16 +418,106 @@ src/
 tests/          unit and end-to-end suites
 ```
 
+## Design system
+
+The interface follows CBRE's own design files rather than an impression of them. Two sources:
+the style definitions inside CBRE's corporate Word template (`CBRE_Template.docx`, read
+directly from its `styles.xml`) and the brand reference that ships with it. Where the two
+disagree, the template wins, because it is the artefact CBRE actually publishes with.
+
+### The wordmark
+
+The header carries CBRE's official wordmark, the white artwork on the CBRE Green header as
+the guide requires for dark backgrounds. It is never scaled unevenly, recolored or given
+effects, and it keeps clear space equal to its own height on every side. The practice name
+sits beside it after a hairline rule, and no longer repeats "CBRE". The favicon is a plain
+CBRE Green tile: the wordmark is illegible at 16 pixels and the guide forbids altering it, so
+the tab carries the brand color and nothing invented.
+
+### Typefaces
+
+CBRE's system is four faces, and the licensing differs between them:
+
+| Face | Role | Licence | How it ships here |
+| --- | --- | --- | --- |
+| Financier Display | Display headings | Klim, commercial | Named first in its stack; renders wherever CBRE's fonts are installed. Fallback is Georgia, the brand guide's own |
+| Calibre | Interface and body | Klim, commercial | Named first in its stack. Fallback is Arial, the brand guide's own |
+| Barlow Condensed | Captions, dense data | SIL Open Font License | Embedded as a Latin subset, three weights, 46 KB |
+| Space Mono | Technical values | SIL Open Font License | Embedded as a Latin subset, 11 KB |
+
+On a CBRE machine with the corporate fonts deployed, the app renders in Financier Display and
+Calibre with nothing downloaded. Anywhere else it renders in Georgia and Arial, which is the
+substitution the brand guide itself specifies. This is a substitution, not brand compliance,
+and a webfont licence for the two Klim faces would close the gap. The two open faces are
+embedded, so the standalone file needs no font server and works offline.
+
+### Roles, as the template sets them
+
+| Role | Face | Weight | Color | In the app |
+| --- | --- | --- | --- | --- |
+| Display heading | Financier Display | Regular | CBRE Green | Page titles, the upload headline |
+| Second-level heading | Calibre | Regular | Sage | Dashboard section titles |
+| Third-level heading | Calibre | Medium | CBRE Green | Card titles |
+| Fourth-level heading | Calibre | Medium | Dark Grey | Chart titles |
+| Eyebrow label | Calibre | Medium, caps, tracked | Cement | KPI labels, panel headings, table headers |
+| Lead paragraph | Calibre | Regular | CBRE Green | The upload introduction |
+| Body | Calibre | Regular | Dark Grey | Everything else |
+| Dense data | Barlow Condensed | Regular to Semibold | Dark Grey | The data table, KPI numerals, chart axes and legends |
+| Technical value | Space Mono | Regular | inherits | Comp IDs |
+
+Body text was Dark Green before this pass; CBRE sets body in Dark Grey `435254`, and that is
+the single most visible change. Chart titles are the one heading the template's colors do not
+decide: the template would make them green, but green is also the single-series color, and a
+title should never wear the series color, so they take the fourth-level Dark Grey.
+
+The template's print scale (11pt body, 32pt first heading, 52pt title) is not transplanted.
+Sizes are re-derived for a data-dense screen on a scale of 11, 12, 13, 14, 16, 18, 24 and 28
+pixels, with 26 pixels for KPI numerals, replacing the 16 unrelated sizes the stylesheet had
+grown. Weights collapse to the three the system has, regular, medium and semibold: Calibre
+Semibold is the heaviest text weight CBRE uses, so nothing is bold. Tracking survives only on
+uppercase eyebrow labels, at one value. Radii tighten from 4, 8 and 12 pixels to 2, 4 and 8,
+which is closer to CBRE's architectural visual language, and spacing tokens sit on a 4-pixel
+grid.
+
+### Charts
+
+The brand reference's chart rules are applied directly: light dashed gridlines in `CCD9D5` on
+the value axis only, small grey axis labels in `767676` with no axis lines or tick marks,
+legends at the foot, and moderate bar gaps. Axis labels and legends are set in Barlow
+Condensed. The reference states the gap as Excel's gap width 150, a gap one and a half times
+the bar, so a bar takes 40% of its band. Recharts spends `barCategoryGap` on both sides of a
+band, so column and ranked bar charts use 30% to land on the same 40% bar. A distribution's
+bars take 60% of the band instead, since a histogram's bars nearly touch by convention.
+
+### Writing
+
+Interface copy and this document follow CBRE's writing rules: American English for a U.S.
+audience, no em or en dashes in prose, "more than" rather than "over", and none of the words
+the guide bans. The palette names keep CBRE's own spelling, Dark Grey and Light Grey.
+
+### Two discrepancies, resolved in the template's favour
+
+The brand reference describes second-level headings as Financier Display in CBRE Green; the
+template's own style sets them in Calibre at 18pt in Sage. The template wins. Sage on white
+measures 4.29:1, short of the 4.5:1 that normal text needs, so section titles are set at 24
+pixels, where the large-text threshold of 3:1 applies and the template's own 18pt size lands
+anyway.
+
+Cement, which the template uses for fifth-level headings and captions, measures 3.77:1 on
+white. It is kept for eyebrow labels and captions exactly as the template uses it, and nowhere
+else. A team that needs AA on every label can switch the eyebrow color to Dark Grey in one
+token.
+
 ## Color
 
 Every color is a CBRE 2021 brand value. Chrome uses CBRE Green, Accent Green and Dark
-Green; ink, borders and surfaces come from Dark Grey, Cement and Light Grey.
+Green; body text is Dark Grey, with Cement for captions and Light Grey for borders.
 
 Chart series use the `cbre_charts` palette. The brand guide says to assign those slots in
 order, and this does, with one deliberate exception: slots 4 and 5 are swapped so accent
 green and wheat never sit side by side. Measured against a color-vision simulation that
 adjacency scores a separation of 1.6, meaning roughly one man in twelve cannot tell two
-neighbouring stacked segments apart. Moving terracotta between them lifts the worst
+neighboring stacked segments apart. Moving terracotta between them lifts the worst
 adjacent pair to 14.7 and changes no color values.
 
 The two alternative palettes in the chart settings are built from the same brand list and were
@@ -437,7 +527,7 @@ rather than shipped. What each palette scores is printed beside it in the picker
 
 | Palette | Closest adjacent pair, light | Dark |
 | --- | --- | --- |
-| CBRE charts | ΔE 14.7 colour-vision / 23.7 normal | 14.7 / 20.2 |
+| CBRE charts | ΔE 14.7 color-vision / 23.7 normal | 14.7 / 20.2 |
 | High contrast | 13.7 / 23.2 | 12.1 / 15.1 |
 | Warm | 18.1 / 19.5 | 14.7 / 19.5 |
 

@@ -174,14 +174,24 @@ export function PropertyPopup({ site, deal, onSelectDeal }: PropertyPopupProps) 
 
       <div className="pop__footer">
         <span>
-          {deal
-            ? [
-                multiple ? `Deal ${index + 1} of ${site.deals.length}` : '',
-                deal.compId.trim() ? `Comp ${deal.compId.trim()}` : `Row ${deal.sourceRow}`,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : 'Choose a deal to see its terms'}
+          {deal ? (
+            <>
+              {multiple && (
+                <>
+                  Deal {index + 1} of {site.deals.length} ·{' '}
+                </>
+              )}
+              {deal.compId.trim() ? (
+                <>
+                  Comp <span className="mono">{deal.compId.trim()}</span>
+                </>
+              ) : (
+                <>Row {deal.sourceRow}</>
+              )}
+            </>
+          ) : (
+            'Choose a deal to see its terms'
+          )}
         </span>
 
         {deal && multiple && (

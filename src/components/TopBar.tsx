@@ -1,6 +1,7 @@
 import { useApp } from '../state/AppContext'
 import { dealsToCsv, downloadCsv, timestampedName } from '../lib/exportCsv'
-import { CbreLogo, IconChart, IconDownload, IconMap, IconMoon, IconSettings, IconSun, IconUpload } from './Icons'
+import { IconChart, IconDownload, IconMap, IconMoon, IconSettings, IconSun, IconUpload } from './Icons'
+import wordmark from '../assets/cbre-wordmark-white.png'
 
 export function TopBar() {
   const { phase, tab, setTab, theme, setTheme, fileName, deals, filtered, reset, reopenMapping } = useApp()
@@ -12,10 +13,16 @@ export function TopBar() {
 
   return (
     <header className="topbar">
+      {/*
+        The official wordmark carries the brand, so the practice name no longer repeats
+        "CBRE". White artwork on the green header, as the brand guide requires, with clear
+        space of the wordmark's own height on every side.
+      */}
       <div className="topbar__brand">
-        <CbreLogo />
+        <img className="topbar__wordmark" src={wordmark} alt="CBRE" width={80} height={20} />
+        <span className="topbar__rule" aria-hidden="true" />
         <span className="topbar__title">
-          CBRE Healthcare &amp; Life Sciences
+          Healthcare &amp; Life Sciences
           <span className="topbar__subtitle">Market Data</span>
         </span>
       </div>

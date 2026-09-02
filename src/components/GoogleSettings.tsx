@@ -179,7 +179,7 @@ export function GoogleSettings() {
               {buildingGradeCount.toLocaleString('en-US')} of {sites.length.toLocaleString('en-US')}{' '}
               locations are precise enough to name a building. The other{' '}
               {unmatched.toLocaleString('en-US')} came back as a street interpolation, which lands in
-              the roadway, so they stay on their pins rather than risk colouring in a neighbour.
+              the roadway, so they stay on their pins rather than risk coloring in a neighbor.
               Google geocoding returns rooftop coordinates and would resolve most of them.
             </span>
           )}

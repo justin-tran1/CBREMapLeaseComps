@@ -128,6 +128,18 @@ check(
   await page.getByRole('heading', { name: 'Map a healthcare and life sciences comp set' }).isVisible(),
 )
 check('app is branded for the practice', (await page.locator('.topbar__title').innerText()).includes('Healthcare'))
+// The header carries CBRE's own wordmark, not a drawn stand-in, at the brand's aspect ratio.
+const wordmark = page.locator('.topbar__wordmark')
+check('the official CBRE wordmark is in the header', (await wordmark.getAttribute('alt')) === 'CBRE')
+const wm = await wordmark.boundingBox()
+check('the wordmark keeps its proportions', wm !== null && Math.abs(wm.width / wm.height - 338 / 85) < 0.05, wm ? `${wm.width}x${wm.height}` : 'no box')
+check('the practice name does not repeat the brand', !(await page.locator('.topbar__title').innerText()).includes('CBRE'))
+check(
+  'the interface is set in CBRE type stacks',
+  /Calibre|Financier/.test(await page.evaluate(() => getComputedStyle(document.body).fontFamily)) &&
+    /Financier Display/.test(await page.evaluate(() => getComputedStyle(document.querySelector('.upload__hero h1')).fontFamily)),
+  await page.evaluate(() => getComputedStyle(document.body).fontFamily),
+)
 
 await page.getByRole('button', { name: 'Load sample data' }).click()
 await page.getByRole('heading', { name: 'Location' }).waitFor({ timeout: 8000 })

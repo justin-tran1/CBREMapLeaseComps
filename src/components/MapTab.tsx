@@ -804,7 +804,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
       : drawMode === 'rectangle'
         ? 'Drag to draw a rectangle. Escape cancels.'
         : drawMode === 'circle'
-          ? 'Drag out from the centre to set a radius. Escape cancels.'
+          ? 'Drag out from the center to set a radius. Escape cancels.'
           : ''
 
   if (!webgl) {
@@ -993,7 +993,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
           {/*
             Say why a building is not green, because silence reads as a bug. A comp located by
             street interpolation sits in the roadway, so the map declines to name a building
-            for it rather than colour in a neighbour.
+            for it rather than color in a neighbor.
           */}
           {threeD && !buildingsFailed && looselyLocated > 0 && (
             <div className="map-status__line muted">
