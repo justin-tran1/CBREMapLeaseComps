@@ -143,7 +143,7 @@ Google engine and the Google geocoder immediately.
 
 The map opens tilted over aerial imagery with buildings extruded in 3D. **Buildings that
 hold a deal are picked out in CBRE green; click one and its deals open.** Everything else
-stays neutral grey and is not clickable. Buildings appear once you pass street level, which
+stays neutral gray and is not clickable. Buildings appear once you pass street level, which
 is where the footprints exist in the underlying data.
 
 The green solid is the whole of the target: the click area is that one building's footprint
@@ -226,7 +226,7 @@ quarterly, and yearly to suit the span in the data.
 
 ### The signed date section
 
-Signing is its own question, so it has its own band rather than a relabelled copy of the
+Signing is its own question, so it has its own band rather than a relabeled copy of the
 charts above: a quarter can be busy for signings and quiet for commencements, and the gap
 between the two is the pipeline, which is the one thing neither date shows on its own.
 
@@ -382,10 +382,10 @@ click area on the subject building:
   part, never to a union's total, since a union of small buildings is individually small while
   covering a neighborhood.
 
-A footprint that fails these tests is left grey rather than approximated, and clicks only
+A footprint that fails these tests is left gray rather than approximated, and clicks only
 ever go to footprints that passed. The highlight itself is grown by 35 cm and its roof lifted
 by half a meter, because two solids sharing a surface exactly leave the depth buffer nothing
-to decide with, and the result is grey speckling through the green.
+to decide with, and the result is gray speckling through the green.
 
 `tests/smoke.mjs` puts a 1.3 km campus polygon around the fixture building and asserts that
 ground 190 m away opens nothing. `tests/maplayers.mjs` serves a four-building union as one
@@ -484,7 +484,7 @@ grid.
 ### Charts
 
 The brand reference's chart rules are applied directly: light dashed gridlines in `CCD9D5` on
-the value axis only, small grey axis labels in `767676` with no axis lines or tick marks,
+the value axis only, small gray axis labels in `767676` with no axis lines or tick marks,
 legends at the foot, and moderate bar gaps. Axis labels and legends are set in Barlow
 Condensed. The reference states the gap as Excel's gap width 150, a gap one and a half times
 the bar, so a bar takes 40% of its band. Recharts spends `barCategoryGap` on both sides of a
@@ -497,7 +497,7 @@ Interface copy and this document follow CBRE's writing rules: American English f
 audience, no em or en dashes in prose, "more than" rather than "over", and none of the words
 the guide bans. The palette names keep CBRE's own spelling, Dark Grey and Light Grey.
 
-### Two discrepancies, resolved in the template's favour
+### Two discrepancies, resolved in the template's favor
 
 The brand reference describes second-level headings as Financier Display in CBRE Green; the
 template's own style sets them in Calibre at 18pt in Sage. The template wins. Sage on white

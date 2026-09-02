@@ -286,7 +286,7 @@ await page.waitForTimeout(200)
 check('back returns to picker', (await page.locator('.pop__pickitem').count()) === pickCount)
 
 // A pin in the middle of the map has room for the card neither above nor below it, so
-// MapLibre opens it downward and off the bottom. Drag the pin to the map's vertical centre,
+// MapLibre opens it downward and off the bottom. Drag the pin to the map's vertical center,
 // choose a deal, and the map must pan the card fully into view.
 await page.locator('.maplibregl-popup-close-button').click()
 await page.waitForTimeout(200)
