@@ -1,0 +1,39 @@
+{
+  "name": "cbre-hcls-lease-comp-mapper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CBRE Healthcare & Life Sciences lease comp mapper: upload a spreadsheet, explore every deal on a 3D map, and analyse the set on a filtered dashboard.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:standalone": "vite build --mode standalone",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test:units": "node tests/units.mjs",
+    "test:map": "node tests/maplayers.mjs",
+    "test:e2e": "node tests/smoke.mjs",
+    "test:standalone": "node tests/standalone.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justin-tran1/CBREMapLeaseComps.git"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@e965/xlsx": "^0.20.3",
+    "maplibre-gl": "^6.4.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}

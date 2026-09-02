@@ -1,7 +1,10 @@
-# Generated news reports
-news_reports/
-
-# Python
-__pycache__/
-*.pyc
-.venv/
+node_modules/
+dist/
+standalone/
+.DS_Store
+*.local
+.vite/
+.env
+.env.*
+!.env.example
+npm-debug.log*
