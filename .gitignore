@@ -1,0 +1,7 @@
+# Generated news reports
+news_reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
