@@ -3,7 +3,7 @@ import { useApp } from '../state/AppContext'
 import { applyFilters, describeActiveFilters, emptyRange } from '../lib/filters'
 import { formatDateISO } from '../lib/coerce'
 import { shapeAreaLabel, shapeLabel } from '../lib/geometry'
-import { fmtCompact } from '../lib/format'
+import { fmtCompact, fmtDate } from '../lib/format'
 import { IconChevronRight, IconFilter, IconSearch, IconX } from './Icons'
 import type { DateRange, Filters, NumericRange } from '../types'
 
@@ -134,6 +134,19 @@ interface DateRangeFieldProps {
   onChange: (next: DateRange) => void
 }
 
+/**
+ * `2022-01-04` as `Jan 4, 2022`, the way every other date in the interface reads.
+ *
+ * Built field by field rather than handed to `new Date(iso)`, which reads the string as UTC
+ * midnight and so lands on the previous day for anyone west of Greenwich.
+ */
+function fmtIsoDate(iso: string | null): string {
+  if (!iso) return ''
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return fmtDate(new Date(y, m - 1, d))
+}
+
 /** A from/to date pair, the span present in the data, and the presets. */
 function DateRangeField({ label, value, bounds, emptyHint, onChange }: DateRangeFieldProps) {
   return (
@@ -158,7 +171,7 @@ function DateRangeField({ label, value, bounds, emptyHint, onChange }: DateRange
         />
       </div>
       <span className="range-hint">
-        {bounds.start ? `Data range ${bounds.start} to ${bounds.end}` : emptyHint}
+        {bounds.start ? `Data range ${fmtIsoDate(bounds.start)} to ${fmtIsoDate(bounds.end)}` : emptyHint}
       </span>
       <div className="chiprow">
         {DATE_PRESETS.map((preset) => (

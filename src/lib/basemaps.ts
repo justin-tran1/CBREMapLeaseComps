@@ -9,7 +9,7 @@ export interface BasemapDef {
   tiles: string[]
   attribution: string
   maxZoom: number
-  /** Drawn over the base tiles, for labelled aerial imagery. */
+  /** Drawn over the base tiles, for labeled aerial imagery. */
   overlayTiles?: string[]
   overlayMaxZoom?: number
   /** CSS background for the swatch in the switcher. */
@@ -242,7 +242,7 @@ export function buildStyle(basemap: BasemapDef, dark: boolean): StyleSpecificati
    * as something drawn on the ground rather than a line floating across roofs. Both start
    * hidden; the layer switcher turns them on.
    *
-   * Violet rather than green: green is what a building holding a deal is coloured, and a
+   * Violet rather than green: green is what a building holding a deal is colored, and a
    * boundary must never be mistaken for a comp. The light and dark values are the brand's own
    * plum and light violet, so the line holds up over pale canvas and over aerial imagery alike.
    */

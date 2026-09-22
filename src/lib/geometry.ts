@@ -209,9 +209,9 @@ export function geometryAreaSqMeters(geometry: GeoJSON.Geometry): number {
  * Split a geometry into its separate polygons, each with its own holes.
  *
  * This is the difference between one building and a whole block. Vector tile generators union
- * neighbouring buildings into a single multi-part feature at lower zooms, so one feature can
- * carry twenty unrelated footprints spread across a neighbourhood. Treating that feature as
- * one shape is what coloured in a whole district for a single comp.
+ * neighboring buildings into a single multi-part feature at lower zooms, so one feature can
+ * carry twenty unrelated footprints spread across a neighborhood. Treating that feature as
+ * one shape is what colored in a whole district for a single comp.
  */
 export function polygonPartsOf(geometry: GeoJSON.Geometry): GeoJSON.Polygon[] {
   if (geometry.type === 'Polygon') return [geometry]
@@ -233,7 +233,7 @@ export interface FootprintPick<T> {
  *
  * Three things go wrong without this:
  *
- *  - Screen-space picking against extruded buildings can return a neighbour whose facade
+ *  - Screen-space picking against extruded buildings can return a neighbor whose facade
  *    happens to cover the queried pixel, so a candidate is only accepted when it
  *    geographically contains the point.
  *  - A feature can be a union of many buildings, so the search runs over the individual parts

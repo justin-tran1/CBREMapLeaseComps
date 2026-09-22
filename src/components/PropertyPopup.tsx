@@ -54,7 +54,7 @@ function tiText(deal: LeaseDeal): string {
  * The detail card for one deal, in the field order the desk asked for.
  *
  * Signed date leads. It is the same column the filter rail and the dashboard call signed date,
- * and the same one the export calls `Signed Date`; the field was previously labelled execution
+ * and the same one the export calls `Signed Date`; the field was previously labeled execution
  * date in three places and signed date in a fourth, which is one name too many for one date.
  */
 function DealDetail({ deal }: { deal: LeaseDeal }) {

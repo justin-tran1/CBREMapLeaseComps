@@ -132,7 +132,7 @@ const BUILDING_MATCH_LIMIT = 400
  * 200 m square, which covers a large hospital podium and nothing bigger. Above it the polygon
  * is a campus, a city block or a land parcel, and OpenStreetMap has plenty of all three. Such
  * a polygon is left alone rather than highlighted, because making it clickable is exactly the
- * behaviour of covering far more ground than the subject building.
+ * behavior of covering far more ground than the subject building.
  */
 const BUILDING_MAX_FOOTPRINT_SQ_M = 40_000
 /**
@@ -350,7 +350,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
 
     /*
      * A handle on the map for the test suite, in development only. Which buildings the sweep
-     * decided to colour in is invisible from the DOM, and that is precisely the thing that has
+     * decided to color in is invisible from the DOM, and that is precisely the thing that has
      * gone wrong before, so the tests need to be able to read it. Stripped from any production
      * build by the constant folding on import.meta.env.DEV.
      */
@@ -516,7 +516,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
    *
    * The footprints this produces are the only ones the map ever makes clickable, so a comp
    * whose building cannot be identified with confidence contributes nothing here and is
-   * reached through its pin instead. Guessing would put the deal on a neighbour.
+   * reached through its pin instead. Guessing would put the deal on a neighbor.
    */
   const runBuildingSweep = useCallback(() => {
     const map = mapRef.current
@@ -540,7 +540,7 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
       /*
        * A coordinate has to be rooftop-grade before it may name a building. A street
        * interpolation sits in the roadway, so the footprint containing it belongs to whichever
-       * neighbour the interpolation drifted towards. Skipping those is what stops the map
+       * neighbor the interpolation drifted towards. Skipping those is what stops the map
        * showing the wrong building; the comp is still on the map, on its pin.
        */
       if (!isBuildingGrade(site.precision)) continue

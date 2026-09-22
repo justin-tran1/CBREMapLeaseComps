@@ -16,7 +16,7 @@ import type { Site } from '../types'
  * building here has nothing to do with geometry. Instead Google reports a place id for the
  * place that was clicked, and the geocoder records a place id for every comp, so a click is
  * resolved by comparing two identifiers. That is exact: no footprint, no polygon-size rule, no
- * neighbour to get wrong.
+ * neighbor to get wrong.
  *
  * The cost of that exactness is that a comp geocoded by a key-less provider has no place id,
  * and Google may report a place the comp set has never heard of. Both cases fall back to the

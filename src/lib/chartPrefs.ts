@@ -7,7 +7,7 @@ import { CHART_PALETTES, type ChartPaletteId } from './palette'
  * These are presentation choices, not encoding choices. Nothing here can change what a chart
  * means: the palettes are fixed, ordered and measured, series keep their slot whichever one is
  * chosen, and there is no option that would put two measures on one pair of axes or replace a
- * legend with colour alone. What a user can change is how the result reads in the room it is
+ * legend with color alone. What a user can change is how the result reads in the room it is
  * being shown in.
  */
 

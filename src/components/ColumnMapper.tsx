@@ -119,8 +119,8 @@ export function ColumnMapper() {
             <IconInfo className="alert__icon" size={16} />
             <span>
               Every field below is optional except the ones marked required. Leave a field unmapped
-              and it simply shows as blank in the popup and the table. Escalations often span
-              several columns, so pick whichever one reads best for the deal summary.
+              and it shows as blank in the popup and the table. Escalations often span several
+              columns, so pick whichever one reads best for the deal summary.
             </span>
           </div>
         )}
