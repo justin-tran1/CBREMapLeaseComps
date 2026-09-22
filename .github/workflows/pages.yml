@@ -3,6 +3,11 @@ name: Deploy to GitHub Pages
 # Publishes the built app to GitHub Pages. The site is public, and so is this
 # repository; nothing secret belongs in the bundle. A visitor's Google Maps key,
 # when they set one, is kept in their own browser storage and never ships here.
+#
+# Pages has to be switched on once by hand, under Settings > Pages, with the
+# source set to GitHub Actions. A workflow cannot do it: the run's own token is
+# refused by the API that creates a Pages site, which fails with "Resource not
+# accessible by integration". Once the setting is on, every run here deploys.
 on:
   push:
     branches:
@@ -42,13 +47,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      # enablement turns Pages on the first time this runs, so the site does not
-      # have to be switched on by hand before the first deployment.
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # The app is built with a relative base, so it runs from the project
       # subpath Pages serves it under without any further rewriting.

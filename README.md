@@ -27,11 +27,13 @@ from a subfolder as happily as from a domain root.
 
 **The public page.** A push to `main` builds that same bundle and publishes it to GitHub
 Pages at https://justin-tran1.github.io/CBREMapLeaseComps/, through
-`.github/workflows/pages.yml`. The workflow turns Pages on the first time it runs. The
-page is public, because the repository is. That costs nothing in confidentiality: the
-application holds no data, every file a user opens is read in their own browser, and the
-sample set is invented rather than drawn from any deal record. Deal data lives on the
-machine it was opened on, wherever the page is served from.
+`.github/workflows/pages.yml`. Pages has to be switched on once by hand, under **Settings
+> Pages**, with the source set to **GitHub Actions**; a workflow cannot do it for itself,
+because the API that creates a Pages site refuses a run's own token. Every run deploys
+once that setting is on. The page is public, because the repository is. That costs nothing
+in confidentiality: the application holds no data, every file a user opens is read in their
+own browser, and the sample set is invented rather than drawn from any deal record. Deal
+data lives on the machine it was opened on, wherever the page is served from.
 
 ## Using it
 
@@ -333,6 +335,7 @@ npm run test:map                 # terminal 2, 26 checks on the vector map layer
 
 npm run build && npm run preview # terminal 1
 npm run test:e2e                 # terminal 2, 115 end-to-end checks
+BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone
 npm run test:standalone          # 9 checks against the single file, opened from disk
