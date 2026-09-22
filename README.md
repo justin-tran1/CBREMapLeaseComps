@@ -22,7 +22,16 @@ It needs no install and no server. The only thing it fetches from the internet i
 imagery, plus geocoding lookups when a sheet has no coordinates.
 
 **Hosting it on an intranet.** `npm run build` writes a normal static bundle to `dist`.
-Serve that folder from any web server.
+Serve that folder from any web server. The bundle uses relative asset paths, so it runs
+from a subfolder as happily as from a domain root.
+
+**The public page.** A push to `main` builds that same bundle and publishes it to GitHub
+Pages at https://justin-tran1.github.io/CBREMapLeaseComps/, through
+`.github/workflows/pages.yml`. The workflow turns Pages on the first time it runs. The
+page is public, because the repository is. That costs nothing in confidentiality: the
+application holds no data, every file a user opens is read in their own browser, and the
+sample set is invented rather than drawn from any deal record. Deal data lives on the
+machine it was opened on, wherever the page is served from.
 
 ## Using it
 

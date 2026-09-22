@@ -16,7 +16,9 @@ import { chromium } from 'playwright'
 import geojsonvt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
 
-const BASE = 'http://localhost:4173/'
+// Points at the preview server by default. Set BASE_URL to run the same suite against a
+// build hosted somewhere else, such as under the project subpath GitHub Pages serves.
+const BASE = process.env.BASE_URL ?? 'http://localhost:4173/'
 
 // Alexandria Center at Kendall in the sample data, and a footprint drawn around it.
 const FIXTURE = { name: 'Alexandria Center at Kendall', lat: 42.3656, lng: -71.086, deals: 4 }
@@ -56,7 +58,9 @@ const squareRing = (deg) => [
   ],
 ]
 
-const tileIndex = geojsonvt(
+// geojson-vt shipped a factory function through version 3 and a class from version 4.
+// `new` satisfies both: the old factory returns its own object, which `new` hands back.
+const tileIndex = new geojsonvt(
   {
     type: 'FeatureCollection',
     features: [
