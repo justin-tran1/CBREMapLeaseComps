@@ -19,9 +19,9 @@ import { DEFAULT_CHART_PREFS, type ChartPrefs } from '../../lib/chartPrefs'
 /**
  * Shared chart chrome.
  *
- * Most charts here carry one measure, so every bar is the same colour: colour is not
+ * Most charts here carry one measure, so every bar is the same color: color is not
  * encoding anything and a rainbow would imply otherwise. The categorical slots appear only
- * where colour genuinely separates series, which in this dashboard is the stacked column.
+ * where color genuinely separates series, which in this dashboard is the stacked column.
  */
 
 export interface ChartTheme {
@@ -31,7 +31,7 @@ export interface ChartTheme {
   axis: string
   ink: string
   inkMuted: string
-  /** Axis label colour: the brand guide's chart grey, quieter than body text. */
+  /** Axis label color: the brand guide's chart grey, quieter than body text. */
   tick: string
   /** Axis labels and legends are set condensed, as CBRE's dense tables are. */
   fontCondensed: string
@@ -86,7 +86,7 @@ function radius(theme: ChartTheme, corners: [number, number, number, number]): [
   return theme.prefs.barShape === 'square' ? [0, 0, 0, 0] : corners
 }
 
-/** A grid the user has switched off is not drawn at all, rather than drawn in the surface colour. */
+/** A grid the user has switched off is not drawn at all, rather than drawn in the surface color. */
 function gridStroke(theme: ChartTheme): string | undefined {
   return theme.prefs.showGrid ? theme.grid : 'transparent'
 }
@@ -195,7 +195,7 @@ interface CategoryBarsProps {
   labelWidth?: number
 }
 
-/** Horizontal bars for ranked categories. One measure, so one colour. */
+/** Horizontal bars for ranked categories. One measure, so one color. */
 export function CategoryBars({
   data,
   theme,
@@ -311,7 +311,7 @@ export function StackedColumns({
             name={key}
             stackId="a"
             fill={colorFor(key, index)}
-            /* A surface-coloured hairline keeps adjoining segments from bleeding together. */
+            /* A surface-colored hairline keeps adjoining segments from bleeding together. */
             stroke={theme.surface}
             strokeWidth={1.5}
             maxBarSize={54}

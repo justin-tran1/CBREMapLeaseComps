@@ -98,7 +98,7 @@ listing side. `Sublessor` does not disturb `Lessor`. `Tenant`, `Tenant NAICS Cod
 ### 3. Locate the addresses
 
 Rows that already carry latitude and longitude plot immediately. Everything else is
-geocoded from street address, city, state, and ZIP.
+geocoded from street address, city, state and ZIP.
 
 **Precision is recorded, not assumed**, because how precisely a row is located decides what
 the map is allowed to say about it:
@@ -113,7 +113,7 @@ the map is allowed to say about it:
 The providers, in the order the automatic setting tries them:
 
 - **Photon** (OpenStreetMap, free, no key) leads, because it names the OSM object it matched,
-  so a `building` or a `place=house` match is recognisable as the building itself.
+  so a `building` or a `place=house` match is recognizable as the building itself.
 - **US Census Bureau** (free, no key, US only) follows. It walks the house-number range along
   a TIGER street centerline, so its answer always lands in the roadway: dependable for a pin,
   never precise enough to name a building.
@@ -334,7 +334,7 @@ npm run test:units               # terminal 2, 405 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 115 end-to-end checks
+npm run test:e2e                 # terminal 2, 117 end-to-end checks
 BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone
@@ -492,6 +492,19 @@ Semibold is the heaviest text weight CBRE uses, so nothing is bold. Tracking sur
 uppercase eyebrow labels, at one value. Radii tighten from 4, 8 and 12 pixels to 2, 4 and 8,
 which is closer to CBRE's architectural visual language, and spacing tokens sit on a 4-pixel
 grid.
+
+### Case
+
+A column keeps the capitals its own spreadsheet gave it. Table headers, filter sections, the
+groups on the upload and mapping screens, the KPI labels and the note labels in the popup all
+read in sentence case: Signed date, Area leased, TI allowance, Comp ID. An analyst reads those
+as words from their own book, and shouting them adds nothing.
+
+The uppercase eyebrow the CBRE template sets for small labels is kept where the label names
+part of the interface rather than part of the data: the panel headings, the Parties and Notes
+dividers in the popup, the Confidential flag, and Market Data under the wordmark. Caps take
+their tracking with them, and sentence-case labels step up a size, because 11 pixels tracked
+for uppercase reads as a smudge in mixed case.
 
 ### Charts
 

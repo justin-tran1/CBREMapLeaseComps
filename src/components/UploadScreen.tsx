@@ -97,10 +97,10 @@ export function UploadScreen() {
         <div className="upload__hero">
           <h1>Map a healthcare and life sciences comp set</h1>
           <p>
-            Upload a spreadsheet of lease comparables. Every address is plotted on a 3D map you
-            can click through building by building, and the same rows feed a dashboard with the
-            filters your analysis needs. Medical office, lab, GMP manufacturing and outpatient
-            deals all read the same way. Files stay in this browser and never upload anywhere.
+            Upload a spreadsheet of lease comparables. Every address lands on a 3D map you can
+            click through building by building, and the same rows drive a filtered dashboard.
+            Medical office, lab, GMP manufacturing and outpatient deals all read the same way.
+            Files stay in this browser and never upload anywhere.
           </p>
         </div>
 
@@ -179,8 +179,8 @@ export function UploadScreen() {
             <div>
               <div className="card__title">Columns the tool looks for</div>
               <div className="card__subtitle">
-                Headers are matched automatically. Anything it gets wrong is a dropdown away on the
-                next screen, and columns it does not recognize are kept with the row.
+                Headers match automatically. Anything it gets wrong is a dropdown away on the
+                next screen, and columns it does not recognize stay with the row.
               </div>
             </div>
           </div>
@@ -213,9 +213,9 @@ export function UploadScreen() {
         <div className="alert alert--info">
           <IconInfo className="alert__icon" size={16} />
           <span>
-            Rows that already carry latitude and longitude are plotted straight away. Everything
-            else is geocoded from the street address, city, state and ZIP, and results are cached in
-            this browser so the same addresses never need looking up twice.
+            Rows that already carry latitude and longitude go straight onto the map. The tool
+            geocodes everything else from the street address, city, state and ZIP, then caches
+            the results in this browser so the same addresses never need looking up twice.
           </span>
         </div>
       </div>

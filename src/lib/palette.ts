@@ -1,21 +1,21 @@
 /**
- * Colour roles, drawn from the CBRE 2021 brand palette.
+ * Color roles, drawn from the CBRE 2021 brand palette.
  *
  * Every value below is an official brand hex. Nothing is invented.
  *
  * Chart series use the `cbre_charts` palette. The brand guide says to assign those slots in
  * order, and this does, with one deliberate exception: slots 4 and 5 are swapped so accent
- * green and wheat never land side by side. Measured against a colour-vision simulation,
+ * green and wheat never land side by side. Measured against a color-vision simulation,
  * that adjacency scores ΔE 1.6 under protanopia, which means roughly one man in twelve
- * cannot tell two neighbouring stacked segments apart. Moving terracotta between them
- * lifts the worst adjacent pair to ΔE 14.7 and changes no colour values.
+ * cannot tell two neighboring stacked segments apart. Moving terracotta between them
+ * lifts the worst adjacent pair to ΔE 14.7 and changes no color values.
  *
  * The brand guide defines no dark-mode chart palette. The dark column keeps each slot's
- * identity and substitutes the brand colour from the same family that reads on a dark
+ * identity and substitutes the brand color from the same family that reads on a dark
  * surface, so a series holds its meaning when the theme flips.
  */
 
-/** Primary and secondary brand colours. */
+/** Primary and secondary brand colors. */
 export const CBRE = {
   green: '#003f2d',
   accentGreen: '#17e88f',
@@ -66,13 +66,13 @@ export const CATEGORICAL_DARK = [
  * because the pairs that fail are not the ones that look risky. Accent green beside wheat
  * scores ΔE 1.6 under protanopia, which is the reason the default swaps slots four and five,
  * and a cool blue-and-sage set that looked entirely sensible scored 6.2 for normal vision and
- * was dropped. The figures below are the worst adjacent pair under simulated colour-vision
+ * was dropped. The figures below are the worst adjacent pair under simulated color-vision
  * deficiency, and the worst adjacent pair for normal vision, on this theme's own surface.
  *
  *   node scripts/validate_palette.js "<hexes>" --mode light|dark
  *
  * Only the separation checks are treated as pass or fail. The lightness-band and chroma-floor
- * checks fail for every one of these, the default included, because they are brand colours and
+ * checks fail for every one of these, the default included, because they are brand colors and
  * the brand is the parameter. The contrast warning is answered by the legend, the tooltips and
  * the data table, which is the relief that warning asks for.
  */
@@ -108,7 +108,7 @@ export const CHART_PALETTES: ChartPaletteDef[] = [
   {
     id: 'warm',
     label: 'Warm',
-    description: 'Plum and wheat lead. The widest colour-vision separation of the three.',
+    description: 'Plum and wheat lead. The widest color-vision separation of the three.',
     light: [CBRE.plum, CBRE.wheat, CBRE.terracotta, CBRE.green, CBRE.brandBlue, CBRE.sageTint],
     dark: [CBRE.lightViolet, CBRE.wheat, CBRE.terracotta, CBRE.accentGreen, CBRE.brandBlue, CBRE.sageTint],
     measured: { light: [18.1, 19.5], dark: [14.7, 19.5] },
@@ -119,7 +119,7 @@ export function chartPalette(id: ChartPaletteId): ChartPaletteDef {
   return CHART_PALETTES.find((p) => p.id === id) ?? CHART_PALETTES[0]
 }
 
-/** Single-measure charts use one colour, because colour encodes nothing there. */
+/** Single-measure charts use one color, because color encodes nothing there. */
 export const SERIES_LIGHT = CBRE.green
 export const SERIES_DARK = CBRE.accentGreen
 
@@ -150,7 +150,7 @@ export function markerColor(dealCount: number): string {
   return CBRE.green
 }
 
-/** Building extrusion colours on the 3D map. */
+/** Building extrusion colors on the 3D map. */
 export const BUILDING = {
   /** Buildings with no comp attached. */
   plain: '#c7cfcb',

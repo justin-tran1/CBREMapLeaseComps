@@ -687,9 +687,14 @@ await page.waitForTimeout(600)
 check('data table paginates at 50', (await page.locator('.dtable tbody tr').count()) === 50)
 await page.locator('.dtable th', { hasText: 'Area leased' }).locator('button').click()
 await page.waitForTimeout(500)
-const areaColumn = (await page.locator('.dtable thead th').allInnerTexts()).findIndex((t) => t.includes('Area leased')) + 1
+// The header index is 0-based and :nth-child is 1-based, so the cell is index + 1. This read
+// one column too far for as long as the headers rendered in caps: `includes('Area leased')`
+// never matched, the index fell to -1, and the check quietly measured an empty column.
+const areaColumn = (await page.locator('.dtable thead th').allInnerTexts()).findIndex((t) => t.includes('Area leased'))
+check('the area column is found by its header', areaColumn >= 0, `index ${areaColumn}`)
 const areas = await page.locator(`.dtable tbody tr td:nth-child(${areaColumn + 1})`).allInnerTexts()
 const nums = areas.map((a) => Number(a.replace(/[^\d]/g, ''))).filter((n) => n > 0)
+check('the area column holds numbers', nums.length > 0, `${nums.length} values`)
 check('table sorts descending by area', nums.every((n, i) => i === 0 || nums[i - 1] >= n), nums.slice(0, 5).join(','))
 
 await page.locator('.dtable tbody tr').first().locator('.linkbtn').click()

@@ -8,7 +8,7 @@
  *             precision explicitly, and it returns a place id, so it is tried first when a
  *             key is present.
  *  - photon   Komoot's OpenStreetMap geocoder. Worldwide, key-less, and it names the OSM
- *             object it matched, which is how a building-grade result is recognised.
+ *             object it matched, which is how a building-grade result is recognized.
  *  - census   US Census Bureau geocoder. US only, key-less, and always a street-range
  *             interpolation: reliable for plotting a pin, never precise enough to name a
  *             building.
@@ -44,7 +44,7 @@ export const PRECISION_LABEL: Record<GeocodePrecision, string> = {
  *
  * This is the rule that stops the map naming the wrong building. A street-interpolated
  * coordinate sits in the roadway, so whichever footprint happens to contain it is a
- * neighbour as often as not. Such a comp still plots a pin and still fills the dashboard; it
+ * neighbor as often as not. Such a comp still plots a pin and still fills the dashboard; it
  * just never turns a building green.
  */
 export const MIN_BUILDING_PRECISION: GeocodePrecision = 'rooftop'
@@ -101,7 +101,7 @@ export function availableProviders(googleKeyPresent = hasGoogleKey()): ProviderI
   return GEOCODE_PROVIDERS.filter((p) => !p.needsGoogleKey || googleKeyPresent)
 }
 
-// Bumped for the precision field: v2 entries were all labelled as though the Census returned
+// Bumped for the precision field: v2 entries were all labeled as though the Census returned
 // rooftop coordinates, and trusting them would keep naming the wrong buildings.
 const CACHE_KEY = 'cbre-hcls-mapper.geocache.v3'
 const CACHE_LIMIT = 25_000
@@ -326,7 +326,7 @@ async function geocodeCensus(query: string, signal: AbortSignal): Promise<Geocod
    * Always interpolated, never rooftop. The Census geocoder walks the house-number range
    * along a TIGER street centerline and returns a point on that line, so the coordinate sits
    * in the roadway. It is dependable for a pin and unusable for naming a building, and
-   * labelling it "rooftop" is what put comps on their neighbours' buildings.
+   * labelling it "rooftop" is what put comps on their neighbors' buildings.
    */
   return {
     lat: lat as number,

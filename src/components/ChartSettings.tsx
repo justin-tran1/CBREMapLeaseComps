@@ -44,9 +44,9 @@ function Choice<T extends string>({ label, value, options, onChange }: ChoicePro
  * Presentation settings for the dashboard charts.
  *
  * Deliberately no control here can change what a chart means. The palettes are fixed and
- * ordered so a series keeps its colour when the set is filtered, every one of them was checked
- * for colour-vision separation rather than picked by eye, and nothing offers a second y-axis, a
- * rainbow ramp, or a legend traded away for colour alone.
+ * ordered so a series keeps its color when the set is filtered, every one of them was checked
+ * for color-vision separation rather than picked by eye, and nothing offers a second y-axis, a
+ * rainbow ramp, or a legend traded away for color alone.
  */
 export function ChartSettings({ prefs, setPref, reset, isDefault, dark }: ChartSettingsProps) {
   const [open, setOpen] = useState(false)
@@ -171,7 +171,7 @@ export function ChartSettings({ prefs, setPref, reset, isDefault, dark }: ChartS
           <div className="cset__foot">
             <span className="range-hint">
               Saved in this browser. Color never carries meaning on its own here: every
-              multi-series chart keeps its legend and its tooltips, and the table below carries
+              multi-series chart keeps its legend and tooltips, and the table below carries
               the same numbers.
             </span>
             <button type="button" className="btn btn--ghost btn--sm" onClick={reset} disabled={isDefault}>

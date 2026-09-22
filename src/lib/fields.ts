@@ -233,7 +233,7 @@ export const FIELDS: FieldDef[] = [
     label: 'Term length',
     group: 'Dates & term',
     kind: 'months',
-    hint: 'Months or years; both are recognised',
+    hint: 'Months or years, both recognized',
     synonyms: [
       'term months',
       'term in months',

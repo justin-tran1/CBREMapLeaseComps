@@ -118,7 +118,7 @@ export function GoogleSettings() {
           </div>
 
           <span className="range-hint">
-            Held in this browser's local storage. It is never written into the file, the build, or
+            Held in this browser's local storage. It is never written into the file, the build or
             the repository, and it goes nowhere except Google.
           </span>
 
@@ -136,7 +136,7 @@ export function GoogleSettings() {
               <span className="grow">
                 MapLibre with OpenStreetMap
                 <span className="basemap__sub">
-                  Key-less and free. Seven basemaps, the draw tools, extruded footprints.
+                  No key needed, and free. Seven basemaps, the draw tools, extruded footprints.
                 </span>
               </span>
               {mapEngine === 'maplibre' && <IconCheck size={14} />}

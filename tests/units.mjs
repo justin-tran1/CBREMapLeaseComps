@@ -256,7 +256,7 @@ const results = await page.evaluate(async () => {
   const smallFootprint = square(-71.086, 42.3656, 0.0005)  // one building, ~9,100 m2
   const blockFootprint = square(-71.086, 42.3656, 0.001)   // still under the cap, ~36,500 m2
   const campusFootprint = square(-71.086, 42.3656, 0.004)  // a campus, way over the cap
-  const neighbourFootprint = square(-71.0845, 42.3656, 0.0005)
+  const neighborFootprint = square(-71.0845, 42.3656, 0.0005)
 
   const sidesArea =
     geometry.haversineMeters(42.3656, -71.0865, 42.3656, -71.0855) *
@@ -268,7 +268,7 @@ const results = await page.evaluate(async () => {
     areaOf(donut) < areaOf({ type: 'Polygon', coordinates: [donut.coordinates[0]] }))
   truthy('a multipolygon adds its parts', Math.abs(areaOf({
     type: 'MultiPolygon',
-    coordinates: [smallFootprint.coordinates, neighbourFootprint.coordinates],
+    coordinates: [smallFootprint.coordinates, neighborFootprint.coordinates],
   }) - 2 * areaOf(smallFootprint)) / areaOf(smallFootprint) < 0.01)
   eq('a non-polygon has no area', areaOf({ type: 'Point', coordinates: [0, 0] }), 0)
 
@@ -279,7 +279,7 @@ const results = await page.evaluate(async () => {
   eq('the smallest containing footprint wins whatever the order',
     pick([{ id: 'small', geometry: smallFootprint }, { id: 'block', geometry: blockFootprint }])?.candidate.id, 'small')
   eq('a footprint that does not contain the comp is refused',
-    pick([{ id: 'neighbour', geometry: neighbourFootprint }]), null)
+    pick([{ id: 'neighbor', geometry: neighborFootprint }]), null)
   eq('a campus-sized polygon is refused rather than highlighted',
     pick([{ id: 'campus', geometry: campusFootprint }]), null)
   eq('the chosen candidate comes back intact',
@@ -287,12 +287,12 @@ const results = await page.evaluate(async () => {
     40)
   eq('nothing to choose from yields nothing', pick([]), null)
 
-  // A tile generator unions neighbouring buildings into one feature. Only the part the comp
+  // A tile generator unions neighboring buildings into one feature. Only the part the comp
   // stands in may be highlighted; the rest of the union is other people's buildings.
   eq('a polygon is one part', geometry.polygonPartsOf(smallFootprint).length, 1)
   eq('a union splits into its buildings', geometry.polygonPartsOf({
     type: 'MultiPolygon',
-    coordinates: [smallFootprint.coordinates, neighbourFootprint.coordinates],
+    coordinates: [smallFootprint.coordinates, neighborFootprint.coordinates],
   }).length, 2)
   eq('a non-polygon has no parts', geometry.polygonPartsOf({ type: 'LineString', coordinates: [[0, 0], [1, 1]] }).length, 0)
 
@@ -316,7 +316,7 @@ const results = await page.evaluate(async () => {
   truthy('the union as a whole is four times the area',
     areaOf(blockUnion) > 3.5 * areaOf(smallFootprint), `${areaOf(blockUnion)}`)
   // The cap has to bite on the part, not the sum, or a union of small buildings slips through
-  // by being individually small while covering a neighbourhood.
+  // by being individually small while covering a neighborhood.
   // The part is about 9,100 m2 and the union about 36,500. A 20,000 cap therefore accepts the
   // part and would reject the union, which is what proves the cap bites on the part.
   truthy('the union total would fail a cap the part passes',
@@ -423,9 +423,9 @@ const results = await page.evaluate(async () => {
 
   // -------------------------------------------------------- brand palette
   const brandHexes = new Set(Object.values(palette.CBRE))
-  truthy('every light categorical slot is a brand colour',
+  truthy('every light categorical slot is a brand color',
     palette.CATEGORICAL_LIGHT.every((c) => brandHexes.has(c)), palette.CATEGORICAL_LIGHT.join(','))
-  truthy('every dark categorical slot is a brand colour',
+  truthy('every dark categorical slot is a brand color',
     palette.CATEGORICAL_DARK.every((c) => brandHexes.has(c)), palette.CATEGORICAL_DARK.join(','))
   eq('slot count matches across themes', palette.CATEGORICAL_LIGHT.length, palette.CATEGORICAL_DARK.length)
   eq('single-series light is CBRE green', palette.SERIES_LIGHT, '#003f2d')
@@ -664,19 +664,19 @@ const results = await page.evaluate(async () => {
 
   // ------------------------------------------------- chart palettes and style
   eq('three chart palettes are offered', palette.CHART_PALETTES.length, 3)
-  truthy('every palette hex is a brand colour',
+  truthy('every palette hex is a brand color',
     palette.CHART_PALETTES.every((p) => [...p.light, ...p.dark].every((hex) => brandHexes.has(hex))),
     palette.CHART_PALETTES.map((p) => p.id).join())
   truthy('every palette fills all six slots',
     palette.CHART_PALETTES.every((p) => p.light.length === 6 && p.dark.length === 6))
-  truthy('no palette repeats a colour',
+  truthy('no palette repeats a color',
     palette.CHART_PALETTES.every((p) => new Set(p.light).size === 6 && new Set(p.dark).size === 6))
   /*
    * The separation figures recorded beside each palette are what the validator measured, and
    * they are the reason a cool blue-and-sage set was dropped. A palette below the floor must
    * never reach the picker, so the claim is asserted rather than trusted.
    */
-  truthy('every palette clears the colour-vision floor',
+  truthy('every palette clears the color-vision floor',
     palette.CHART_PALETTES.every((p) => p.measured.light[0] >= 8 && p.measured.dark[0] >= 8),
     palette.CHART_PALETTES.map((p) => `${p.id}:${p.measured.light[0]}/${p.measured.dark[0]}`).join(' '))
   truthy('every palette clears the normal-vision floor',
@@ -685,7 +685,7 @@ const results = await page.evaluate(async () => {
 
   eq('a palette is looked up by id', palette.chartPalette('warm').id, 'warm')
   eq('an unknown palette falls back to the brand one', palette.chartPalette('nope').id, 'cbre')
-  eq('colours come from the chosen palette', palette.colorForIndex(0, false, 'warm'), palette.CBRE.plum)
+  eq('colors come from the chosen palette', palette.colorForIndex(0, false, 'warm'), palette.CBRE.plum)
   eq('the default palette is unchanged', palette.colorForIndex(0, false), palette.CATEGORICAL_LIGHT[0])
   eq('past the last slot is the neutral bucket',
     palette.colorForIndex(9, false, 'warm'), palette.OTHER_COLOR_LIGHT)
@@ -916,7 +916,7 @@ const results = await page.evaluate(async () => {
   truthy('the key is sent to google', calls[0].includes('key=AIzaTESTKEYTESTKEYTESTKEY0123'), calls[0])
   eq('the place id survives the cache', geocode.getCached('g1').placeId, 'PLACE_B')
 
-  truthy('a key is recognised', googleMaps.looksLikeGoogleKey('AIzaSyB-1234567890abcdefghijklmno'))
+  truthy('a key is recognized', googleMaps.looksLikeGoogleKey('AIzaSyB-1234567890abcdefghijklmno'))
   truthy('a URL is not a key', !googleMaps.looksLikeGoogleKey('https://maps.googleapis.com/?key=abc'))
   truthy('a quoted paste is not a key', !googleMaps.looksLikeGoogleKey('"AIzaSyB-1234567890abcdefghij"'))
   truthy('something short is not a key', !googleMaps.looksLikeGoogleKey('AIza'))

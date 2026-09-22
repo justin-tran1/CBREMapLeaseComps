@@ -359,7 +359,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
         </div>
 
         {/*
-          Signing is its own question, not a relabelled copy of the charts above. A quarter can
+          Signing is its own question, not a relabeled copy of the charts above. A quarter can
           be busy for signings and quiet for commencements, and the gap between the two is the
           pipeline, which is the one thing neither date can show on its own.
         */}

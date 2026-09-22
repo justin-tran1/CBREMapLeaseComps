@@ -2,13 +2,13 @@
  * The map layers drawn from the vector tiles: 3D buildings and administrative boundaries.
  *
  * This suite exists because the screenshots that exposed the last two building bugs could not
- * be turned into a check against the DOM: which footprints the sweep decides to colour in, and
+ * be turned into a check against the DOM: which footprints the sweep decides to color in, and
  * which boundary segments a filter admits, live entirely inside the map, so the map itself has
  * to be asked. In development it is published on `window.__cbreMap` for exactly that.
  *
  * The building fixture is the shape that broke it in the field: vector tile generators union
- * neighbouring buildings into one multi-part feature, so a single feature can carry twenty
- * footprints spread across a neighbourhood. One comp inside one part used to paint the whole
+ * neighboring buildings into one multi-part feature, so a single feature can carry twenty
+ * footprints spread across a neighborhood. One comp inside one part used to paint the whole
  * union green.
  *
  *   npm run dev              # in one terminal, on port 5173
@@ -67,7 +67,7 @@ const tileIndex = new geojsonvt(
         properties: { render_height: 38, render_min_height: 0 },
         geometry: { type: 'MultiPolygon', coordinates: UNION_PARTS },
       },
-      // A plain neighbour that shares no feature with the comp's building.
+      // A plain neighbor that shares no feature with the comp's building.
       {
         type: 'Feature',
         properties: { render_height: 24, render_min_height: 0 },
@@ -221,7 +221,7 @@ check(
   `widest feature has ${report.partsInWidestFeature} parts across ${report.vectorResults} results`,
 )
 check(
-  'only the comp\'s own part of the union is coloured in',
+  'only the comp\'s own part of the union is colored in',
   report.greenParts.length === 1,
   `${report.greenParts.length} green: ${JSON.stringify(report.greenParts)}`,
 )
@@ -233,7 +233,7 @@ if (report.greenParts.length === 1) {
 }
 
 /*
- * The behaviour a user sees. A click on a distant part of the same union must not open the
+ * The behavior a user sees. A click on a distant part of the same union must not open the
  * comp that stands 380 m away in a different building.
  */
 const clickAt = await page.evaluate(([lat, lng, mLat, mLng]) => {

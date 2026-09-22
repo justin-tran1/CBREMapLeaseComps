@@ -405,7 +405,7 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
  * How long a deal takes to go from signature to occupancy.
  *
  * This is the one measure that needs both dates, and it is the reason signing deserves its own
- * section rather than a relabelled copy of the commencement charts: a quarter can be busy for
+ * section rather than a relabeled copy of the commencement charts: a quarter can be busy for
  * signings and quiet for commencements, and the gap between the two is the pipeline.
  */
 export function signingStats(deals: LeaseDeal[]): SigningStats {
