@@ -56,7 +56,9 @@ function square(eastM, northM, size) {
  */
 const UNION_PARTS = [square(0, 0, 34), square(150, 40, 30), square(260, -60, 30), square(380, 30, 30)]
 
-const tileIndex = geojsonvt(
+// geojson-vt shipped a factory function through version 3 and a class from version 4.
+// `new` satisfies both: the old factory returns its own object, which `new` hands back.
+const tileIndex = new geojsonvt(
   {
     type: 'FeatureCollection',
     features: [
@@ -100,7 +102,7 @@ const BOUNDARY_FIXTURE = [
   { properties: { admin_level: 6, maritime: 1 }, geometry: line(-400, -260, 400, -260) },
 ]
 
-const boundaryIndex = geojsonvt(
+const boundaryIndex = new geojsonvt(
   {
     type: 'FeatureCollection',
     features: BOUNDARY_FIXTURE.map((f) => ({ type: 'Feature', ...f })),

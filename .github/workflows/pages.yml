@@ -1,0 +1,67 @@
+name: Deploy to GitHub Pages
+
+# Publishes the built app to GitHub Pages. The site is public, and so is this
+# repository; nothing secret belongs in the bundle. A visitor's Google Maps key,
+# when they set one, is kept in their own browser storage and never ships here.
+#
+# Pages has to be switched on once by hand, under Settings > Pages, with the
+# source set to GitHub Actions. A workflow cannot do it: the run's own token is
+# refused by the API that creates a Pages site, which fails with "Resource not
+# accessible by integration". Once the setting is on, every run here deploys.
+on:
+  push:
+    branches:
+      - main
+      - claude/lease-mapping-dashboard-bk44k8
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A queued run is superseded by a newer one, but a
+# deployment already writing the site is left to finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # The app is built with a relative base, so it runs from the project
+      # subpath Pages serves it under without any further rewriting.
+      - name: Upload the built site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
