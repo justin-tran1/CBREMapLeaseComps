@@ -1,4 +1,5 @@
 import type { ChartPrefs } from '../lib/chartPrefs'
+import { cleanText } from '../lib/coerce'
 import {
   buildDashboardModel,
   chartSpecs,
@@ -181,9 +182,10 @@ export function buildExportInput(
     format: prefs.format,
     title: exportTitle(prefs),
     generatedAt,
-    sourceFile: ctx.fileName,
+    // The file name and a typed keyword are the only text here that did not come through a cell.
+    sourceFile: cleanText(ctx.fileName),
     selection: selectionLine(model),
-    filters: describeFiltersForReport(ctx.filters),
+    filters: describeFiltersForReport(ctx.filters).map(cleanText),
     sections,
     specs,
     headline: headlineKpis(model),

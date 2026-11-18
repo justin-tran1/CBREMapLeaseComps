@@ -124,13 +124,22 @@ async function drawChart(doc: jsPDF, input: ExportInput, block: ChartBlock, stag
   const spec = input.specs[block.chartId]
   const theme = chartTheme(false, input.chartPrefs)
 
-  useFont(doc, 'body', 10.5, COLOR.inkStrong).text(fit(doc, spec.title, block.width), block.x, block.y + 11)
+  useFont(doc, 'body', 10.5, COLOR.inkStrong).text(fit(doc, pdfSafe(spec.title), block.width), block.x, block.y + 11)
   useFont(doc, 'body', 7.5, COLOR.cement)
-  if (block.subtitleBelow) doc.text(fit(doc, spec.subtitle, block.width), block.x, block.y + 22)
-  else doc.text(spec.subtitle, block.x + block.width, block.y + 11, { align: 'right' })
+  if (block.subtitleBelow) doc.text(fit(doc, pdfSafe(spec.subtitle), block.width), block.x, block.y + 22)
+  else doc.text(pdfSafe(spec.subtitle), block.x + block.width, block.y + 11, { align: 'right' })
 
   const plotY = block.y + 18 + (block.subtitleBelow ? 11 : 0)
-  await doc.svg(stage.svgOf(block.chartId), { x: block.x, y: plotY, width: block.width, height: block.plotHeight })
+  const svg = stage.svgOf(block.chartId)
+  // Axis labels carry names from the data, so they get the same treatment as the table's cells:
+  // a letter the embedded face lacks would otherwise drop out of "Łódź" without a trace. The
+  // staged copy is thrown away after the export, so it is changed in place.
+  svg.querySelectorAll('text, tspan').forEach((element) =>
+    element.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) node.nodeValue = pdfSafe(node.nodeValue ?? '')
+    }),
+  )
+  await doc.svg(svg, { x: block.x, y: plotY, width: block.width, height: block.plotHeight })
 
   if (block.legend && spec.kind === 'stacked') {
     let x = block.x

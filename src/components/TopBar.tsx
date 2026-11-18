@@ -58,15 +58,16 @@ function DownloadMenu() {
     items[next].focus()
   }
 
+  // Each item unmounts with the menu, so focus goes back to the menu button first rather than
+  // dropping to <body>. The export dialog then hands it back there when it closes.
   const downloadRows = () => {
+    buttonRef.current?.focus()
     setOpen(false)
     if (rows === 0) return
     downloadCsv(timestampedName('cbre-hcls-lease-comps'), dealsToCsv(filtered))
   }
 
   const openExport = () => {
-    // The item is about to unmount with the menu, so the dialog would have nowhere to hand
-    // focus back to. The menu button takes it first and gets it back when the dialog closes.
     buttonRef.current?.focus()
     setOpen(false)
     setExportOpen(true)

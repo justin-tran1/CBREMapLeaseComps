@@ -2793,8 +2793,14 @@ body.is-drawing * {
   opacity: 0.55;
 }
 
-.xfield:disabled > .range-hint:first-of-type {
-  opacity: 1;
+/* A checkbox disabled on its own, outside a disabled fieldset, and the hint under it. */
+.checkbox.is-disabled,
+.checkbox.is-disabled + .range-hint {
+  opacity: 0.55;
+}
+
+.checkbox.is-disabled {
+  cursor: default;
 }
 
 .xfield--row {

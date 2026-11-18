@@ -1,4 +1,5 @@
 import {
+  cleanText,
   detectDurationUnit,
   formatDateISO,
   normalizeState,
@@ -198,7 +199,7 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       notes: toText(pick(row, map, 'notes')),
 
       compId: toText(pick(row, map, 'compId')),
-      confidentiality: toText(pick(row, map, 'confidentiality')),
+      confidentiality: confidentialityText(pick(row, map, 'confidentiality')),
 
       raw: row,
     }
@@ -238,6 +239,21 @@ export function resolveEscalation(deal: LeaseDeal): string {
 }
 
 /**
+ * The confidentiality cell as text. Every other field reads "Confidential" or "Undisclosed" as a
+ * withheld value and keeps a blank; in this one the word is the flag itself, so it stays.
+ */
+function confidentialityText(value: unknown): string {
+  if (typeof value === 'string') {
+    const text = cleanText(value)
+    if (/^(confidential|undisclosed|not disclosed)$/i.test(text)) return text
+  }
+  return toText(value)
+}
+
+/** Values that say a deal is not confidential. "Non-Confidential" contains the word, so it is listed. */
+const NOT_CONFIDENTIAL = /^(no|n|none|false|0|public|unrestricted|not restricted|non[- ]?confidential|not[- ]confidential)$/i
+
+/**
  * How the sheet marks a deal confidential, or '' when it does not.
  *
  * Anything other than a plain "no" is worth flagging: exports say "Yes", "Confidential",
@@ -246,8 +262,8 @@ export function resolveEscalation(deal: LeaseDeal): string {
 export function confidentialityLabel(deal: Pick<LeaseDeal, 'confidentiality'> | undefined): string {
   const raw = (deal?.confidentiality ?? '').trim()
   if (!raw) return ''
-  if (/^(no|none|n|false|public|not confidential|0)$/i.test(raw)) return ''
-  return /^(yes|y|true|1|confidential)$/i.test(raw) ? 'Confidential' : raw
+  if (NOT_CONFIDENTIAL.test(raw)) return ''
+  return /^(yes|y|true|1|x|confidential)$/i.test(raw) ? 'Confidential' : raw
 }
 
 export function isConfidential(deal: Pick<LeaseDeal, 'confidentiality'>): boolean {

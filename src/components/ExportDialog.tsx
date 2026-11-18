@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
@@ -16,6 +17,7 @@ import {
   DEFAULT_TABLE_COLUMNS,
   EXPORT_GROUPS,
   TABLE_ROW_LIMITS,
+  exportTitle,
   readStoredExportPrefs,
   writeStoredExportPrefs,
   type ExportFormat,
@@ -28,6 +30,7 @@ import { isConfidential } from '../lib/normalize'
 import { TABLE_COLUMNS, describeSort } from '../lib/tableColumns'
 import { buildExportInput, sectionStates, type ExportContext } from '../export/input'
 import { estimateExport, exportDashboard } from '../export/index'
+import { coverTitleLines, metricMeasure } from '../export/pdfLayout'
 import { IconDownload, IconX } from './Icons'
 
 const FORMATS: Array<{ id: ExportFormat; label: string; noun: string; description: string }> = [
@@ -90,13 +93,19 @@ export function ExportDialog() {
   const states = useMemo(() => sectionStates(model, specs, ctx, prefs), [model, specs, ctx, prefs])
   const confidentialCount = useMemo(() => filtered.filter(isConfidential).length, [filtered])
 
-  // The length is worked out from a deferred copy, so typing a title never waits on it.
+  // The length is worked out from a deferred copy, and only from the choices that can change it.
+  // A title changes nothing in a deck, and in a PDF only by how many lines it takes on the cover,
+  // so typing one does not lay the whole table out again.
   const deferredPrefs = useDeferredValue(prefs)
   const stamp = useMemo(() => new Date(), [])
+  const { format: lengthFormat, sections, tableColumns, tableRows, omitConfidential } = deferredPrefs
+  const coverLines = lengthFormat === 'pdf' ? coverTitleLines(exportTitle(deferredPrefs), metricMeasure).length : 0
+  // The title is left out of the dependencies on purpose: it counts only through coverLines.
+  const lengthPrefs = useMemo(() => deferredPrefs, [lengthFormat, sections, tableColumns, tableRows, omitConfidential, coverLines])
   const estimate = useMemo(() => {
-    const input = buildExportInput(ctx, deferredPrefs, stamp, { model, specs })
+    const input = buildExportInput(ctx, lengthPrefs, stamp, { model, specs })
     return input.sections.length > 0 ? estimateExport(input) : null
-  }, [ctx, deferredPrefs, stamp, model, specs])
+  }, [ctx, lengthPrefs, stamp, model, specs])
 
   const available = states.filter((s) => s.available)
   const chosen = available.filter((s) => prefs.sections[s.def.id])
@@ -149,8 +158,10 @@ export function ExportDialog() {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Keys pressed in the modal stay in it, out of reach of the page's own shortcuts behind it:
+    // the map's drawing tool, still listening on the document, takes Enter to finish a shape.
+    event.stopPropagation()
     if (event.key === 'Escape') {
-      event.stopPropagation()
       close()
       return
     }
@@ -176,10 +187,23 @@ export function ExportDialog() {
     if (event.target === event.currentTarget) close()
   }
 
+  // A control that disables itself when used (All, None, the column presets, Download while it
+  // builds) drops focus to <body>, outside the dialog, where Escape and Tab no longer reach it.
+  // The panel takes focus back.
+  const onBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget) return
+    requestAnimationFrame(() => {
+      if (panelRef.current && document.activeElement === document.body) panelRef.current.focus()
+    })
+  }
+
   const columnCount = prefs.tableColumns.length
   const isDefaultColumns =
     columnCount === DEFAULT_TABLE_COLUMNS.length && DEFAULT_TABLE_COLUMNS.every((k) => prefs.tableColumns.includes(k))
   const tableRowsAvailable = filtered.length - (prefs.omitConfidential ? confidentialCount : 0)
+  // Leaving out confidential deals can leave the table nothing to list. The box that did it stays
+  // live while ticked, so it can always be unticked.
+  const emptiedByOmit = prefs.sections.table && prefs.omitConfidential && filtered.length > 0 && tableRowsAvailable === 0
 
   let lengthText = ''
   if (estimate) {
@@ -202,6 +226,7 @@ export function ExportDialog() {
         // Focusable, so a click on plain text inside keeps focus, and Escape and Tab, in the dialog.
         tabIndex={-1}
         onKeyDown={onKeyDown}
+        onBlur={onBlur}
       >
         <header className="xdlg__head">
           <div className="grow">
@@ -327,77 +352,86 @@ export function ExportDialog() {
               </span>
             </div>
 
-            <fieldset className="xfield" disabled={!tableOn}>
+            <fieldset className="xfield">
               <legend className="xdlg__label">Deal table</legend>
-              {!tableOn && <span className="range-hint">Include the deal table to choose its columns and rows.</span>}
+              {!tableOn && (
+                <span className="range-hint">
+                  {emptiedByOmit
+                    ? 'Every matching deal is marked confidential. Untick "Leave out confidential deals" to list them.'
+                    : 'Include the deal table to choose its columns and rows.'}
+                </span>
+              )}
 
-              <details className="xcols">
-                <summary>
-                  Columns <span className="xcols__count">{columnCount} of {ALL_COLUMN_KEYS.length}</span>
-                </summary>
-                <div className="xcols__grid">
-                  {TABLE_COLUMNS.map((column) => {
-                    const on = prefs.tableColumns.includes(column.key)
-                    return (
-                      <label key={column.key} className="checkbox">
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          // The last column stays: a table needs one.
-                          disabled={on && columnCount === 1}
-                          onChange={(event) => setColumn(column.key, event.target.checked)}
-                        />
-                        {column.longLabel ?? column.label}
-                      </label>
-                    )
-                  })}
-                </div>
-                <div className="xcols__actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => update({ tableColumns: [...DEFAULT_TABLE_COLUMNS] })}
-                    disabled={isDefaultColumns}
+              <fieldset className="xfield" disabled={!tableOn}>
+                <details className="xcols">
+                  <summary>
+                    Columns <span className="xcols__count">{columnCount} of {ALL_COLUMN_KEYS.length}</span>
+                  </summary>
+                  <div className="xcols__grid">
+                    {TABLE_COLUMNS.map((column) => {
+                      const on = prefs.tableColumns.includes(column.key)
+                      return (
+                        <label key={column.key} className="checkbox">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            // The last column stays: a table needs one.
+                            disabled={on && columnCount === 1}
+                            onChange={(event) => setColumn(column.key, event.target.checked)}
+                          />
+                          {column.longLabel ?? column.label}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="xcols__actions">
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => update({ tableColumns: [...DEFAULT_TABLE_COLUMNS] })}
+                      disabled={isDefaultColumns}
+                    >
+                      Default set
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => update({ tableColumns: [...ALL_COLUMN_KEYS] })}
+                      disabled={columnCount === ALL_COLUMN_KEYS.length}
+                    >
+                      Every column
+                    </button>
+                  </div>
+                </details>
+
+                <div className="xfield xfield--row">
+                  <label className="xfield__inline" htmlFor={`${id}-rows`}>
+                    Rows
+                  </label>
+                  <select
+                    id={`${id}-rows`}
+                    className="select"
+                    value={String(prefs.tableRows)}
+                    onChange={(event) => {
+                      const raw = event.target.value
+                      update({ tableRows: (raw === 'all' ? 'all' : Number(raw)) as TableRowLimit })
+                    }}
                   >
-                    Default set
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => update({ tableColumns: [...ALL_COLUMN_KEYS] })}
-                    disabled={columnCount === ALL_COLUMN_KEYS.length}
-                  >
-                    Every column
-                  </button>
+                    {TABLE_ROW_LIMITS.map((limit) => (
+                      <option key={String(limit)} value={String(limit)}>
+                        {limit === 'all' ? `All ${plural(tableRowsAvailable, 'row', 'rows')}` : `First ${limit}`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </details>
+                <span className="range-hint">In the table's current order: {describeSort(tableSort)}.</span>
+              </fieldset>
 
-              <div className="xfield xfield--row">
-                <label className="xfield__inline" htmlFor={`${id}-rows`}>
-                  Rows
-                </label>
-                <select
-                  id={`${id}-rows`}
-                  className="select"
-                  value={String(prefs.tableRows)}
-                  onChange={(event) => {
-                    const raw = event.target.value
-                    update({ tableRows: (raw === 'all' ? 'all' : Number(raw)) as TableRowLimit })
-                  }}
-                >
-                  {TABLE_ROW_LIMITS.map((limit) => (
-                    <option key={String(limit)} value={String(limit)}>
-                      {limit === 'all' ? `All ${plural(tableRowsAvailable, 'row', 'rows')}` : `First ${limit}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <span className="range-hint">In the table's current order: {describeSort(tableSort)}.</span>
-
-              <label className="checkbox xfield__check">
+              <label className={`checkbox xfield__check${!tableOn && !prefs.omitConfidential ? ' is-disabled' : ''}`}>
                 <input
                   type="checkbox"
                   checked={prefs.omitConfidential}
+                  disabled={!tableOn && !prefs.omitConfidential}
                   onChange={(event) => update({ omitConfidential: event.target.checked })}
                 />
                 <span>

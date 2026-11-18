@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import PptxGenJS from 'pptxgenjs'
 import { chartTheme, stackColor } from '../components/charts/ChartKit'
-import type { ChartSpec, KpiSpec } from '../lib/dashboardModel'
+import { coverageLead, type ChartSpec, type KpiSpec } from '../lib/dashboardModel'
 import { chartPalette } from '../lib/palette'
 import { loadExportAssets, WORDMARK_RATIO } from './assets'
 import { generatedLabel, sourceLine, tableHeading, type ExportInput } from './input'
@@ -291,7 +291,7 @@ export async function writePptx(input: ExportInput): Promise<Blob> {
         addTitle(
           slide,
           'Field coverage',
-          `How many of the ${input.matching.toLocaleString('en-US')} matching rows carry a value for each field`,
+          coverageLead(input.matching),
         )
         const rows = [...input.coverage].reverse()
         slide.addChart(pptx.ChartType.bar, [{ name: 'Rows populated', labels: rows.map((r) => r.label), values: rows.map((r) => r.pct) }], {
@@ -334,18 +334,19 @@ export async function writePptx(input: ExportInput): Promise<Blob> {
           table.omittedConfidential > 0
             ? `. ${table.omittedConfidential.toLocaleString('en-US')} confidential ${table.omittedConfidential === 1 ? 'deal' : 'deals'} left out`
             : ''
+        const range = first === last ? `Row ${first.toLocaleString('en-US')}` : `Rows ${first.toLocaleString('en-US')}-${last.toLocaleString('en-US')}`
         addTitle(
           slide,
           plan.parts > 1 ? `${heading} (${plan.part} of ${plan.parts})` : heading,
-          `Rows ${first}-${last} of ${total.toLocaleString('en-US')}${scope}, sorted by ${table.sortLabel}${omitted}`,
+          `${range} of ${total.toLocaleString('en-US')}${scope}, sorted by ${table.sortLabel}${omitted}`,
         )
         const head = table.columns.map((c) => ({
           text: c.label,
           options: { bold: true, color: C.white, fill: { color: C.green }, align: c.numeric ? ('right' as const) : ('left' as const) },
         }))
         const body = plan.rows.map((rowIndex, r) =>
-          table.columns.map((c) => ({
-            text: c.render(table.rows[rowIndex]),
+          table.columns.map((c, i) => ({
+            text: layout.cells[rowIndex][i],
             options: { align: c.numeric ? ('right' as const) : ('left' as const), fill: { color: r % 2 ? C.zebra : C.white } },
           })),
         )

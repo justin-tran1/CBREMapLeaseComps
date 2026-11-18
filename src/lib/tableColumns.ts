@@ -180,8 +180,15 @@ export function sortDeals(deals: LeaseDeal[], sort: TableSort): LeaseDeal[] {
   })
 }
 
-/** "lease date (descending)", for the line under a table that says how it is ordered. */
+/**
+ * "lease date (descending)", for the line under a table that says how it is ordered. Running text
+ * lowercases the column name but keeps an acronym's capitals: "comp ID", "TI allowance", "OpEx".
+ */
 export function describeSort(sort: TableSort): string {
   const column = BY_KEY.get(sort.key) ?? TABLE_COLUMNS[0]
-  return `${(column.longLabel ?? column.label).toLowerCase()} (${sort.direction === 'asc' ? 'ascending' : 'descending'})`
+  const name = (column.longLabel ?? column.label)
+    .split(' ')
+    .map((word) => (/[A-Z].*[A-Z]/.test(word) ? word : word.toLowerCase()))
+    .join(' ')
+  return `${name} (${sort.direction === 'asc' ? 'ascending' : 'descending'})`
 }

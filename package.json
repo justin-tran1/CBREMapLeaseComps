@@ -13,7 +13,8 @@
     "test:units": "node tests/units.mjs",
     "test:map": "node tests/maplayers.mjs",
     "test:e2e": "node tests/smoke.mjs",
-    "test:standalone": "node tests/standalone.mjs"
+    "test:standalone": "node tests/standalone.mjs",
+    "metrics:pdf": "node tools/pdf-metrics.cjs"
   },
   "repository": {
     "type": "git",

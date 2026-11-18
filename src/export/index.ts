@@ -1,6 +1,6 @@
 import { downloadBlob } from '../lib/download'
 import { exportFileName, type ExportInput } from './input'
-import { approxMeasure, planPdf } from './pdfLayout'
+import { metricMeasure, planPdf } from './pdfLayout'
 import { planSlides } from './pptxPlan'
 
 /**
@@ -26,16 +26,16 @@ export async function exportDashboard(input: ExportInput): Promise<{ filename: s
 }
 
 export interface ExportEstimate {
-  /** Pages in a PDF, slides in a deck. A PDF's count is an estimate, a deck's is exact. */
+  /** Pages in a PDF, slides in a deck, worked out by the rules the writers follow. */
   length: number
   unit: 'page' | 'slide'
   /** The size a deck's table is set in, in points, when the deck carries one. */
   tableFontSize?: number
 }
 
-/** About how long an export will run, worked out without loading either library. */
+/** How long an export will run, worked out without loading either library. */
 export function estimateExport(input: ExportInput): ExportEstimate {
-  if (input.format === 'pdf') return { length: planPdf(input, approxMeasure).estimatedPages, unit: 'page' }
+  if (input.format === 'pdf') return { length: planPdf(input, metricMeasure).estimatedPages, unit: 'page' }
   const slides = planSlides(input)
   const table = slides.find((slide) => slide.kind === 'table')
   return {

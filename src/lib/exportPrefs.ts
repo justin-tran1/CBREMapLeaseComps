@@ -1,3 +1,4 @@
+import { cleanText } from './coerce'
 import { MAIN_CHART_IDS, SIGNED_CHART_IDS, type ChartId } from './dashboardModel'
 import { TABLE_COLUMNS } from './tableColumns'
 
@@ -169,6 +170,7 @@ export function writeStoredExportPrefs(prefs: ExportPrefs): void {
   }
 }
 
+/** The title as the files print it: typed text cleaned like any cell, or the default. */
 export function exportTitle(prefs: Pick<ExportPrefs, 'title'>): string {
-  return prefs.title.trim() || DEFAULT_EXPORT_TITLE
+  return cleanText(prefs.title) || DEFAULT_EXPORT_TITLE
 }

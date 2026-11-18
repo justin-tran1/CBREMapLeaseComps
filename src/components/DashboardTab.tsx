@@ -3,6 +3,7 @@ import { useApp } from '../state/AppContext'
 import {
   buildDashboardModel,
   chartSpecs,
+  coverageLead,
   coverageRows,
   headlineKpis,
   selectionLine,
@@ -157,8 +158,7 @@ export function DashboardTab({ railOpen, onOpenRail }: DashboardTabProps) {
             <div>
               <div className="card__title">Field coverage</div>
               <div className="card__subtitle">
-                How many of the {model.matching.toLocaleString('en-US')} matching rows carry a value for
-                each field. Gaps here explain empty popup rows and thin charts.
+                {coverageLead(model.matching)}. Gaps here explain empty popup rows and thin charts.
               </div>
             </div>
           </div>

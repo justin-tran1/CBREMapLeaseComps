@@ -1,14 +1,16 @@
-import type { ChartId, ChartSpec } from '../lib/dashboardModel'
+import { coverageLead, type ChartId, type ChartSpec } from '../lib/dashboardModel'
 import { chartIdOf, generatedLabel, tableHeading, type ExportInput, type ExportTable } from './input'
+import metrics from './pdfMetrics.json'
+import { pdfSafe } from './text'
 
 /**
  * Where everything goes in the PDF report, worked out before anything is drawn.
  *
  * The planner is pure geometry. It takes a text-measuring function so the export dialog can run
- * it with an estimate to say how many pages a report will have, and the writer can run it with
- * the real font metrics to place every block. Both read the same rules, so the estimate and the
- * file agree on where the page breaks fall, apart from the table, whose rows the table library
- * breaks once it knows how far each cell wraps.
+ * it, before the PDF library has loaded, to say how many pages a report will have, and the writer
+ * can run it with jsPDF's own measure to place every block. The dialog's measure reads the same
+ * font metrics jsPDF does, and the table's rows are paged by the table library's own rules, so the
+ * count the dialog shows is the count the file has.
  */
 
 /** US Letter, landscape, in points. A dashboard is wider than it is tall, and so is its table. */
@@ -43,21 +45,103 @@ export const KPI_GAP = 8
 export const COVERAGE_COLUMNS = 4
 export const COVERAGE_ROW = 15
 
-/** Table metrics. The table library sizes rows itself; these feed the estimate and the margins. */
+/** Table metrics, shared by the writer's table and the planner's account of where its rows fall. */
 export const TABLE_FONT = 7.5
 export const TABLE_PADDING = 3
-export const TABLE_ROW_ESTIMATE = 14.6
-export const TABLE_HEAD_ESTIMATE = 17
+/** jsPDF's default line height, which the table library sizes rows by. */
+const LINE_HEIGHT_FACTOR = 1.15
 
 /** display: titles. body, bodyBold: text. figure: condensed numerals. table: condensed cells. */
 export type FontRole = 'display' | 'body' | 'bodyBold' | 'figure' | 'table'
 
 export type Measure = (text: string, role: FontRole, size: number) => number
 
-/** Average advance widths as a share of the font size, close enough to estimate line breaks. */
-const APPROX_EM: Record<FontRole, number> = { display: 0.46, body: 0.5, bodyBold: 0.55, figure: 0.42, table: 0.41 }
+// ------------------------------------------------------------- metrics
 
-export const approxMeasure: Measure = (text, role, size) => text.length * size * APPROX_EM[role]
+const CHAR_INDEX = new Map(Array.from(metrics.chars, (ch, i) => [ch, i]))
+const WIDTHS: Record<FontRole, number[]> = metrics.widths
+const KERNING: Partial<Record<FontRole, Record<string, number>>> = metrics.kerning
+
+/** Most cells are plain ASCII, which the PDF fonts draw as is. */
+const PLAIN = /^[ -~]*$/
+
+function drawable(text: string): string {
+  return PLAIN.test(text) ? text : pdfSafe(text)
+}
+
+/** A character's advance in thousandths of an em. Every drawable character is listed. */
+function advance(ch: string, role: FontRole): number {
+  const i = CHAR_INDEX.get(ch)
+  return i === undefined ? WIDTHS[role][CHAR_INDEX.get('?') ?? 0] : WIDTHS[role][i]
+}
+
+/**
+ * A line's width in points as jsPDF measures it: each character's advance from the font, plus
+ * the kerning pairs of the built-in faces. The numbers are read from jsPDF by
+ * tools/pdf-metrics.cjs, so this agrees with the writer's own measure without loading jsPDF.
+ */
+export const metricMeasure: Measure = (text, role, size) => {
+  const kerning = KERNING[role]
+  let total = 0
+  let prior = ''
+  for (const ch of drawable(text)) {
+    total += advance(ch, role)
+    if (kerning && prior) total += kerning[prior + ch] ?? 0
+    prior = ch
+  }
+  return (total * size) / 1000
+}
+
+/**
+ * How many lines jsPDF's splitTextToSize breaks a cell's text into, which is how the table
+ * library wraps it. Words go on a line while they fit; a word wider than the cell is cut into
+ * pieces, its first piece hanging on the line before. Only for the condensed face, which has no
+ * kerning, so a word measures as the sum of its letters.
+ */
+export function pdfLineCount(text: string, width: number, role: 'figure' | 'table', size: number): number {
+  const max = (width / size) * 1000
+  const space = advance(' ', role)
+  let lines = 1
+  let lineLength = 0
+  let separator = 0
+  for (const word of drawable(text).split(' ')) {
+    const widths = Array.from(word, (ch) => advance(ch, role))
+    let wordLength = 0
+    for (const w of widths) wordLength += w
+    if (lineLength + separator + wordLength <= max) {
+      lineLength += separator + wordLength
+      separator = space
+      continue
+    }
+    if (wordLength > max) {
+      // The piece that fits on the current line stays there, the rest is cut into full lines.
+      let i = 0
+      let working = 0
+      const hanging = max - (lineLength + separator)
+      while (i < widths.length && working + widths[i] < hanging) working += widths[i++]
+      working = 0
+      for (; i < widths.length; i++) {
+        if (working + widths[i] > max) {
+          lines++
+          working = 0
+        }
+        working += widths[i]
+      }
+      lines++
+      lineLength = working
+    } else {
+      lines++
+      lineLength = wordLength
+    }
+    separator = space
+  }
+  return lines
+}
+
+/** The cover title, wrapped to at most three lines. The dialog asks for it too: it moves the page breaks. */
+export function coverTitleLines(title: string, measure: Measure): string[] {
+  return wrapText(title, CONTENT_WIDTH, 'display', 24, measure).slice(0, 3)
+}
 
 export function wrapText(text: string, width: number, role: FontRole, size: number, measure: Measure): string[] {
   const words = text.split(/\s+/).filter(Boolean)
@@ -178,7 +262,7 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
   }
 
   // -- Title block: always present, it is what makes the file identifiable.
-  const titleLines = wrapText(input.title, CONTENT_WIDTH, 'display', 24, measure).slice(0, 3)
+  const titleLines = coverTitleLines(input.title, measure)
   const titleY = 86
   const selectionY = titleY + (titleLines.length - 1) * 28 + 20
   const coverHeight = selectionY + 16
@@ -224,62 +308,63 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
   }
 
   // -- A run of charts, laid out two to a row with wide charts on rows of their own.
-  const placeCharts = (ids: ChartId[], keepWith = 0) => {
+  const chartRows = (ids: ChartId[]) => {
+    const rows: Array<{ left: ChartSpec; right: ChartSpec | null; wide: boolean }> = []
     let pending: ChartSpec | null = null
-    let first = true
-
-    const placeRow = (left: ChartSpec, right: ChartSpec | null, wide: boolean) => {
-      const a = chartBlockHeight(left, wide)
-      const b = right ? chartBlockHeight(right, false) : null
-      const leftWidth = wide ? CONTENT_WIDTH : HALF_WIDTH
-      const subtitleBelow = !subtitleFits(left, leftWidth, measure) || (!!right && !subtitleFits(right, HALF_WIDTH, measure))
-      const extra = subtitleBelow ? 11 : 0
-      const rowHeight = Math.max(a.total, b?.total ?? 0) + extra
-      ensure(rowHeight + (first ? keepWith : 0))
-      first = false
-      page().push({
-        kind: 'chart',
-        x: MARGIN_X,
-        y,
-        width: leftWidth,
-        height: rowHeight,
-        chartId: left.id,
-        plotHeight: a.plot,
-        legend: a.legend,
-        subtitleBelow,
-      })
-      if (right && b) {
-        page().push({
-          kind: 'chart',
-          x: MARGIN_X + HALF_WIDTH + GUTTER,
-          y,
-          width: HALF_WIDTH,
-          height: rowHeight,
-          chartId: right.id,
-          plotHeight: b.plot,
-          legend: b.legend,
-          subtitleBelow,
-        })
-      }
-      y += rowHeight
-    }
-
     for (const id of ids) {
       const spec = input.specs[id]
       if (spec.wide) {
-        if (pending) {
-          placeRow(pending, null, false)
-          pending = null
-        }
-        placeRow(spec, null, true)
+        if (pending) rows.push({ left: pending, right: null, wide: false })
+        pending = null
+        rows.push({ left: spec, right: null, wide: true })
       } else if (pending) {
-        placeRow(pending, spec, false)
+        rows.push({ left: pending, right: spec, wide: false })
         pending = null
       } else {
         pending = spec
       }
     }
-    if (pending) placeRow(pending, null, false)
+    if (pending) rows.push({ left: pending, right: null, wide: false })
+
+    return rows.map((row) => {
+      const a = chartBlockHeight(row.left, row.wide)
+      const b = row.right ? chartBlockHeight(row.right, false) : null
+      const leftWidth = row.wide ? CONTENT_WIDTH : HALF_WIDTH
+      const subtitleBelow =
+        !subtitleFits(row.left, leftWidth, measure) || (!!row.right && !subtitleFits(row.right, HALF_WIDTH, measure))
+      return { ...row, a, b, leftWidth, subtitleBelow, height: Math.max(a.total, b?.total ?? 0) + (subtitleBelow ? 11 : 0) }
+    })
+  }
+
+  const placeCharts = (rows: ReturnType<typeof chartRows>) => {
+    for (const row of rows) {
+      ensure(row.height)
+      page().push({
+        kind: 'chart',
+        x: MARGIN_X,
+        y,
+        width: row.leftWidth,
+        height: row.height,
+        chartId: row.left.id,
+        plotHeight: row.a.plot,
+        legend: row.a.legend,
+        subtitleBelow: row.subtitleBelow,
+      })
+      if (row.right && row.b) {
+        page().push({
+          kind: 'chart',
+          x: MARGIN_X + HALF_WIDTH + GUTTER,
+          y,
+          width: HALF_WIDTH,
+          height: row.height,
+          chartId: row.right.id,
+          plotHeight: row.b.plot,
+          legend: row.b.legend,
+          subtitleBelow: row.subtitleBelow,
+        })
+      }
+      y += row.height
+    }
   }
 
   const chartsIn = (group: 'main' | 'signed'): ChartId[] =>
@@ -287,15 +372,16 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
       .map(chartIdOf)
       .filter((id): id is ChartId => !!id && (group === 'signed' ? id === 'signedByPeriod' || id === 'signingLag' : id !== 'signedByPeriod' && id !== 'signingLag'))
 
-  placeCharts(chartsIn('main'))
+  placeCharts(chartRows(chartsIn('main')))
 
   // -- The signed date section: a heading kept with whatever follows it.
-  const signedCharts = chartsIn('signed')
-  if (selected.has('signedKpis') || signedCharts.length > 0) {
+  const signedRows = chartRows(chartsIn('signed'))
+  if (selected.has('signedKpis') || signedRows.length > 0) {
     const note = `When deals were executed, from the Signed Date column, rather than when they commenced. ${input.signingNote}`
     const noteLines = wrapText(note, CONTENT_WIDTH, 'body', 8.5, measure)
     const height = 24 + noteLines.length * 11 + 10
-    const next = selected.has('signedKpis') ? KPI_HEIGHT + BLOCK_GAP : WIDE_CHART_HEIGHT + CHART_TITLE_ROW + LEGEND_ROW
+    // The heading moves with the block under it: the signing numbers, or else the first chart row.
+    const next = selected.has('signedKpis') ? KPI_HEIGHT + BLOCK_GAP : (signedRows[0]?.height ?? 0)
     ensure(height + next)
     page().push({ kind: 'heading', y, height, text: 'Signed date', noteLines })
     y += height
@@ -306,12 +392,12 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
       page().push({ kind: 'kpis', y, height: kpiHeight, set: 'signing', columns: input.signing.length })
       y += kpiHeight
     }
-    placeCharts(signedCharts)
+    placeCharts(signedRows)
   }
 
   // -- Field coverage.
   if (selected.has('coverage')) {
-    const subtitle = `How many of the ${input.matching.toLocaleString('en-US')} matching rows carry a value for each field. Gaps here explain empty popup rows and thin charts.`
+    const subtitle = `${coverageLead(input.matching)}. Gaps here explain empty popup rows and thin charts.`
     const subtitleLines = wrapText(subtitle, CONTENT_WIDTH, 'body', 8, measure)
     const rows = Math.ceil(input.coverage.length / COVERAGE_COLUMNS)
     const height = 18 + subtitleLines.length * 10.5 + 6 + rows * COVERAGE_ROW + BLOCK_GAP
@@ -336,42 +422,84 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
     }
     const subtitleLines = wrapText(notes.join(' '), CONTENT_WIDTH, 'body', 8, measure)
     const height = 18 + subtitleLines.length * 10.5 + 6
-    // Keep the heading with the column headers and a few rows rather than stranding it.
-    ensure(height + TABLE_HEAD_ESTIMATE + TABLE_ROW_ESTIMATE * 3)
+    const rows = pdfTableRows(t)
+    // Keep the heading with the column headers and the first few rows rather than stranding it.
+    const opening = rows.head + rows.body.slice(0, 3).reduce((sum, h) => sum + h, 0)
+    ensure(height + Math.min(opening, CONTENT_BOTTOM - CONTENT_TOP - height))
     page().push({ kind: 'tableHead', y, height, heading: tableHeading(t), subtitleLines })
     y += height
     tableStart = { page: pages.length - 1, y }
-    tablePages = tableContinuationPages(t, y)
+    tablePages = tablePagesAfter(rows, y)
   }
 
   return { pages, tableStart, estimatedPages: pages.length + tablePages }
 }
 
-/**
- * Pages the table adds after the one it starts on, by laying its rows out the way the table
- * library does: each column its share of the width, each row as tall as its most wrapped cell,
- * no row split across a page, and the header repeated at the top of each new page.
- *
- * Always measured with the estimate, never the real metrics: it runs over every cell, and the
- * dialog runs it again whenever an option changes.
- */
-export function tableContinuationPages(table: ExportTable, startY: number): number {
-  const totalWeight = table.columns.reduce((sum, c) => sum + c.weight, 0)
-  const widths = table.columns.map((c) => (CONTENT_WIDTH * c.weight) / totalWeight - TABLE_PADDING * 2)
-  const lineHeight = TABLE_FONT * 1.15
-  const heightOf = (lines: number) => lines * lineHeight + TABLE_PADDING * 2
-  const linesOf = (text: string, i: number, role: FontRole) => wrapText(text, widths[i], role, TABLE_FONT, approxMeasure).length
+/** Row heights of the deal table, in points, as the table library will size them. */
+export interface PdfTableRows {
+  head: number
+  body: number[]
+}
 
-  const head = heightOf(Math.max(...table.columns.map((c, i) => linesOf(c.label, i, 'figure'))))
-  let y = startY + head
+/**
+ * The table's row heights, by the table library's own rules: each column its share of the width,
+ * each cell's text broken as jsPDF's splitTextToSize breaks it (into a cell one point wider than
+ * its text space, as the library allows against rounding), each row as tall as its most wrapped
+ * cell.
+ */
+export function pdfTableRows(table: ExportTable): PdfTableRows {
+  const totalWeight = table.columns.reduce((sum, c) => sum + c.weight, 0)
+  const space = table.columns.map((c) => (CONTENT_WIDTH * c.weight) / totalWeight - TABLE_PADDING * 2 + 1)
+  const lineHeight = TABLE_FONT * LINE_HEIGHT_FACTOR
+  const heightOf = (lines: number) => lines * lineHeight + TABLE_PADDING * 2
+  const tallest = (texts: string[], role: 'figure' | 'table') => {
+    let lines = 1
+    texts.forEach((text, i) => {
+      lines = Math.max(lines, pdfLineCount(text, space[i], role, TABLE_FONT))
+    })
+    return heightOf(lines)
+  }
+  return {
+    head: tallest(table.columns.map((c) => c.label), 'figure'),
+    body: table.rows.map((deal) => tallest(table.columns.map((c) => c.render(deal)), 'table')),
+  }
+}
+
+/**
+ * Pages the table adds after the one it starts on, by the table library's paging: the header
+ * repeated at the top of each page, a row that does not fit moved whole to the next page, and a
+ * row taller than a page split across as many as it needs.
+ */
+export function tablePagesAfter(rows: PdfTableRows, startY: number): number {
+  const oneLine = TABLE_FONT * LINE_HEIGHT_FACTOR + TABLE_PADDING * 2
+  const pageRoom = CONTENT_BOTTOM - CONTENT_TOP - rows.head
   let pages = 0
-  for (const deal of table.rows) {
-    const height = heightOf(Math.max(...table.columns.map((c, i) => linesOf(c.render(deal), i, 'table'))))
-    if (y + height > CONTENT_BOTTOM) {
-      pages++
-      y = CONTENT_TOP + head
+  let y = startY
+  const nextPage = () => {
+    pages++
+    y = CONTENT_TOP + rows.head
+  }
+
+  // The library starts on a new page when not even the header fits under the heading.
+  if (y + rows.head > CONTENT_BOTTOM) {
+    pages++
+    y = CONTENT_TOP
+  }
+  y += rows.head
+
+  for (const height of rows.body) {
+    if (height <= CONTENT_BOTTOM - y) {
+      y += height
+      continue
     }
-    y += height
+    // Moved whole to the next page, unless it is taller than a page and a line of it fits here.
+    if (!(height > pageRoom && oneLine < CONTENT_BOTTOM - y)) nextPage()
+    let rest = height
+    while (rest > CONTENT_BOTTOM - y) {
+      rest -= CONTENT_BOTTOM - y
+      nextPage()
+    }
+    y += rest
   }
   return pages
 }

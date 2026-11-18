@@ -180,6 +180,13 @@ export interface CoverageSpec {
   pct: number
 }
 
+/** The field coverage caption, on screen and in both files. One deal reads in the singular. */
+export function coverageLead(matching: number): string {
+  return matching === 1
+    ? 'Whether the one matching row carries a value for each field'
+    : `How many of the ${matching.toLocaleString('en-US')} matching rows carry a value for each field`
+}
+
 export function coverageRows(model: DashboardModel): CoverageSpec[] {
   return model.coverage.map((row) => ({
     label: row.label,

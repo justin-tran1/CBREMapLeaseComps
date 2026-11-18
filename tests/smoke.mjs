@@ -799,6 +799,61 @@ await page.getByRole('button', { name: 'Download', exact: true }).click()
 const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows/ }))
 const csvRows = csv.body.toString('utf8').trim().split(/\r?\n/).length
 check('the CSV still downloads every filtered row', csv.name.endsWith('.csv') && csvRows === 75, `${csv.name}, ${csvRows} lines`)
+check(
+  'focus returns to the menu button after the CSV',
+  (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Download',
+)
+
+// A control that disables itself when used keeps focus in the dialog, so Escape still closes it,
+// and keys pressed in the dialog never reach the page behind it (the map's drawing tool listens
+// on the document).
+await exportButton.click()
+await exportDialog.waitFor()
+await page.evaluate(() => {
+  window.__keysBehind = 0
+  document.addEventListener('keydown', () => {
+    window.__keysBehind++
+  })
+})
+await exportDialog.getByRole('button', { name: 'Leave out every charts part' }).focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(150)
+check(
+  'focus stays in the dialog when a control disables itself',
+  await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')),
+  await page.evaluate(() => document.activeElement?.tagName ?? ''),
+)
+check('keys pressed in the dialog stay in it', (await page.evaluate(() => window.__keysBehind)) === 0)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+check('escape still closes the dialog after that', (await exportDialog.count()) === 0)
+
+// Leaving out confidential deals cannot lock the dialog: with only confidential deals matching,
+// the box that emptied the table stays live, so it can be unticked.
+const scottsdale = page.locator('#fsection-city .optionlist__item', { hasText: 'Scottsdale' }).locator('input')
+await scottsdale.check()
+await page.waitForTimeout(500)
+await exportButton.click()
+await exportDialog.waitFor()
+const tablePart = exportDialog.getByLabel('Deal table')
+const omitBox = exportDialog.getByLabel(/Leave out confidential deals/)
+// The titled PDF above left confidential deals out, and that choice is remembered, so the dialog
+// can open with the table already emptied: the state that used to lock.
+if (!(await omitBox.isChecked())) {
+  await tablePart.check()
+  await omitBox.check()
+}
+check('with only confidential deals matching, the table has nothing to list', await tablePart.isDisabled())
+check('the box that emptied the table can still be unticked', (await omitBox.isEnabled()) && (await omitBox.isChecked()))
+check(
+  'the dialog says how to list them',
+  await exportDialog.getByText('Untick "Leave out confidential deals" to list them.', { exact: false }).isVisible(),
+)
+await omitBox.uncheck()
+check('unticking it brings the table back', (await tablePart.isEnabled()) && (await tablePart.isChecked()))
+await page.keyboard.press('Escape')
+await scottsdale.uncheck()
+await page.waitForTimeout(500)
 
 // Leave the export choices as a first visit finds them.
 await page.evaluate(() => localStorage.removeItem('cbre-hcls-mapper.exportPrefs.v1'))
