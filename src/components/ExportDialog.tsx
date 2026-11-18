@@ -158,8 +158,9 @@ export function ExportDialog() {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Keys pressed in the modal stay in it, out of reach of the page's own shortcuts behind it:
-    // the map's drawing tool, still listening on the document, takes Enter to finish a shape.
+    // Keys pressed in the modal stay in it, out of reach of the page's own shortcuts behind it.
+    // The dialog can open over the map mid-drawing, and the Escape that closes it must not also
+    // cancel the shape.
     event.stopPropagation()
     if (event.key === 'Escape') {
       close()
