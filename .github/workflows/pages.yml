@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - claude/lease-mapping-dashboard-bk44k8
   workflow_dispatch:
 
 permissions:
