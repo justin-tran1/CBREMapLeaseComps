@@ -221,8 +221,11 @@ moves the map, it does not filter the data.
 | Rectangle | Drag a box | Release the mouse |
 | Radius | Drag out from the center | Release the mouse |
 
-Backspace removes the last polygon point. Escape cancels. The shape becomes a filter chip
-that applies to both tabs and clears like any other filter.
+Backspace removes the last polygon point. Escape cancels, and switching to the dashboard does
+too, so a half-drawn shape never turns into a filter out of sight. Enter and Backspace reach
+the drawing only from the map itself, which takes focus as each point is clicked; a button
+anywhere else on the page keeps its Enter. The shape becomes a filter chip that applies to
+both tabs and clears like any other filter.
 
 ## The dashboard
 
@@ -334,7 +337,7 @@ npm run test:units               # terminal 2, 405 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 117 end-to-end checks
+npm run test:e2e                 # terminal 2, 126 end-to-end checks
 BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone

@@ -272,23 +272,13 @@ export class DrawController {
   private onKeyDown = (event: KeyboardEvent): void => {
     if (this.destroyed) return
 
-    // Never swallow a keystroke aimed at a text field, so Backspace still edits the
-    // search box if it has focus while a shape is in flight.
-    const target = event.target as HTMLElement | null
-    const typing =
-      !!target &&
-      (target.isContentEditable ||
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT')
-    if (typing && event.key !== 'Escape') return
-
+    // Escape cancels wherever focus is, a text field included, so a shape can always be dropped.
     if (event.key === 'Escape') {
       event.preventDefault()
       this.onCancel()
       return
     }
-    if (this.mode !== 'polygon') return
+    if (this.mode !== 'polygon' || !this.aimedAtMap(event)) return
 
     if (event.key === 'Enter') {
       event.preventDefault()
@@ -299,6 +289,21 @@ export class DrawController {
       event.preventDefault()
       this.undoLastPoint()
     }
+  }
+
+  /**
+   * Whether a keystroke is meant for the map rather than for another control on the page.
+   *
+   * Enter and Backspace belong to whatever has focus. A button keeps its Enter, whether it sits
+   * in the top bar, the filter rail, or among the map's own zoom controls, and a text field such
+   * as the search box keeps its Backspace. The drawing takes them only from the map itself, whose
+   * canvas takes focus as each point is clicked, or when nothing has focus at all.
+   */
+  private aimedAtMap(event: KeyboardEvent): boolean {
+    const target = event.target
+    if (target === document.body || target === document.documentElement) return true
+    // The canvas container holds the canvas and the pins, but not the map's controls.
+    return target instanceof Node && this.map.getCanvasContainer().contains(target)
   }
 
   private undoLastPoint(): void {

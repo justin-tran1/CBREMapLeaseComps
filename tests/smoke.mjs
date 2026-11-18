@@ -604,6 +604,124 @@ check('escape cancels drawing', !(await page.locator('.map-hint').isVisible()))
 await page.getByRole('button', { name: 'Clear all filters' }).click()
 await page.waitForTimeout(500)
 
+// --------------------------------------------- 10b. drawing stays on the map
+/*
+ * The map stays mounted behind the dashboard, and the drawing tool listens for its keys on the
+ * whole document. While the tool outlived the map, Enter on any dashboard button did nothing,
+ * and with a polygon in flight it finished the half-drawn shape and filtered the dashboard by
+ * it. Enter on the Dashboard tab did the same instead of switching tabs. Each check presses a
+ * real key on a focused control, as a keyboard user would.
+ */
+const drawTool = page.getByRole('button', { name: 'Draw area' })
+const chartSettings = page.getByRole('button', { name: 'Chart settings', exact: true })
+const leaseDateSort = page.locator('.dtable th', { hasText: 'Lease date' }).locator('button')
+const mapSearch = page.getByPlaceholder('Jump to a property, tenant or address')
+const drawnChips = () => page.locator('.chip', { hasText: 'Drawn area' }).count()
+const matching = async () =>
+  (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
+// The count includes the vertex following the cursor, so it runs one ahead of the clicks.
+const polygonPoints = async () =>
+  Number(/Polygon · (\d+) points/.exec(await page.locator('.map-status').first().innerText())?.[1])
+
+/** Three corners down and the ring still open, on a fresh tool whatever a failed check left on. */
+async function startPolygon() {
+  if ((await drawTool.getAttribute('aria-pressed')) === 'true') await drawTool.click()
+  await drawTool.click()
+  await page.waitForTimeout(250)
+  await page.mouse.click(canvasBox.x + 380, canvasBox.y + 220)
+  await page.mouse.click(canvasBox.x + 980, canvasBox.y + 220)
+  await page.mouse.click(canvasBox.x + 980, canvasBox.y + 680)
+}
+
+/** Drop a shape a failing check let through, so the failure does not spread to later sections. */
+async function dropStrayShape() {
+  if ((await drawnChips()) === 0) return
+  await page.getByRole('button', { name: 'Clear all filters' }).first().click()
+  await page.waitForTimeout(500)
+}
+
+// The tool left on with nothing drawn yet.
+await drawTool.click()
+await page.waitForTimeout(250)
+await page.getByRole('tab', { name: 'Dashboard' }).click()
+await page.waitForTimeout(1200)
+await chartSettings.focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(300)
+check('Enter reaches a dashboard button with the draw tool left on', await page.locator('.cset__panel').isVisible())
+// Closed with the mouse rather than Escape, which would end a drawing still running.
+if (await page.locator('.cset__panel').isVisible()) await chartSettings.click()
+await page.waitForTimeout(200)
+
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+check('leaving the map turns the draw tool off', (await drawTool.getAttribute('aria-pressed')) === 'false')
+
+// A polygon in flight when the dashboard opens.
+await startPolygon()
+await page.getByRole('tab', { name: 'Dashboard' }).click()
+await page.waitForTimeout(1200)
+await leaseDateSort.focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(400)
+check(
+  'Enter reaches a table header with a polygon in flight',
+  (await leaseDateSort.getAttribute('aria-sort')) === 'ascending',
+  `sorted ${await leaseDateSort.getAttribute('aria-sort')}`,
+)
+check(
+  'the half-drawn polygon does not become a filter',
+  (await drawnChips()) === 0 && (await matching()).startsWith('74 of 74'),
+  await matching(),
+)
+// Back to the default sort, newest first.
+await page.keyboard.press('Enter')
+await page.waitForTimeout(300)
+await dropStrayShape()
+
+// The keyboard's way to the dashboard, from the map, mid-polygon.
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+await startPolygon()
+await page.getByRole('tab', { name: 'Dashboard' }).focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(1200)
+check(
+  'Enter on the Dashboard tab switches tabs mid-polygon',
+  (await page.getByRole('tab', { name: 'Dashboard' }).getAttribute('aria-selected')) === 'true',
+)
+check(
+  'switching tabs mid-polygon commits nothing',
+  (await drawnChips()) === 0 && (await matching()).startsWith('74 of 74'),
+  await matching(),
+)
+await dropStrayShape()
+
+// On the map the keys still drive the drawing, and the search box keeps its own.
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+await startPolygon()
+const pointsBefore = await polygonPoints()
+await page.keyboard.press('Backspace')
+await page.waitForTimeout(200)
+const pointsAfter = await polygonPoints()
+check('Backspace on the map still removes the last point', pointsAfter === pointsBefore - 1, `${pointsBefore} -> ${pointsAfter}`)
+await mapSearch.fill('Al')
+await page.keyboard.press('Backspace')
+await page.waitForTimeout(200)
+check(
+  'Backspace in the search box edits the text, not the shape',
+  (await mapSearch.inputValue()) === 'A' && (await polygonPoints()) === pointsAfter,
+  `"${await mapSearch.inputValue()}", ${await polygonPoints()} points`,
+)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(300)
+check(
+  'Escape cancels a polygon in flight, even from the search box',
+  !(await page.locator('.map-hint').isVisible()) && (await drawnChips()) === 0,
+)
+await mapSearch.fill('')
+
 // ------------------------------------------------------------ 11. dashboard
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1600)
