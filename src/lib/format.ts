@@ -82,14 +82,19 @@ export function fmtShortMonths(n: number | null | undefined): string {
   return `${Number.isInteger(rounded) ? rounded : dec1.format(rounded)} mos`
 }
 
+// Built once: toLocaleDateString builds a formatter on every call, and a table of a few thousand
+// deals formats two dates a row.
+const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const monthYear = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' })
+
 export function fmtDate(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return EMPTY
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return shortDate.format(d)
 }
 
 export function fmtMonthYear(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return EMPTY
-  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  return monthYear.format(d)
 }
 
 export function fmtText(s: string | null | undefined): string {

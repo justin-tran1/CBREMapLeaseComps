@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { cloneElement, useMemo, type ReactElement, type ReactNode } from 'react'
 import {
   Area,
   AreaChart,
@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import { colorForIndex, OTHER_LABEL } from '../../lib/palette'
 import { DEFAULT_CHART_PREFS, type ChartPrefs } from '../../lib/chartPrefs'
+import type { ChartSpec } from '../../lib/dashboardModel'
 
 /**
  * Shared chart chrome.
@@ -48,36 +49,66 @@ export interface ChartTheme {
  */
 const CHART_FONT_CONDENSED = "'Barlow Condensed', 'Arial Narrow', Arial, sans-serif"
 
+/** The theme without the hook, for an export that is always drawn on white paper. */
+export function chartTheme(dark: boolean, prefs: ChartPrefs = DEFAULT_CHART_PREFS): ChartTheme {
+  return {
+    ...(dark
+      ? {
+          series: '#17e88f',
+          seriesSoft: 'rgba(23,232,143,0.16)',
+          grid: '#1b3b30',
+          axis: '#35604f',
+          ink: '#ffffff',
+          inkMuted: '#96b3b6',
+          tick: '#96b3b6',
+          surface: '#0f2b23',
+          dark: true,
+        }
+      : {
+          series: '#003f2d',
+          seriesSoft: 'rgba(0,63,45,0.12)',
+          grid: '#ccd9d5',
+          axis: '#cad1d3',
+          ink: '#435254',
+          inkMuted: '#7f8480',
+          tick: '#767676',
+          surface: '#ffffff',
+          dark: false,
+        }),
+    fontCondensed: CHART_FONT_CONDENSED,
+    prefs,
+  }
+}
+
 export function useChartTheme(dark: boolean, prefs: ChartPrefs = DEFAULT_CHART_PREFS): ChartTheme {
-  return useMemo(
-    () => ({
-      ...(dark
-        ? {
-            series: '#17e88f',
-            seriesSoft: 'rgba(23,232,143,0.16)',
-            grid: '#1b3b30',
-            axis: '#35604f',
-            ink: '#ffffff',
-            inkMuted: '#96b3b6',
-            tick: '#96b3b6',
-            surface: '#0f2b23',
-            dark: true,
-          }
-        : {
-            series: '#003f2d',
-            seriesSoft: 'rgba(0,63,45,0.12)',
-            grid: '#ccd9d5',
-            axis: '#cad1d3',
-            ink: '#435254',
-            inkMuted: '#7f8480',
-            tick: '#767676',
-            surface: '#ffffff',
-            dark: false,
-          }),
-      fontCondensed: CHART_FONT_CONDENSED,
-      prefs,
-    }),
-    [dark, prefs],
+  return useMemo(() => chartTheme(dark, prefs), [dark, prefs])
+}
+
+/**
+ * The color of one series in a stacked chart. The legend, the bars and the exported files all
+ * ask this one function, so a swatch can never disagree with the segment it labels.
+ */
+export function stackColor(key: string, index: number, theme: ChartTheme): string {
+  return key === OTHER_LABEL ? theme.inkMuted : colorForIndex(index, theme.dark, theme.prefs.palette)
+}
+
+/** A fixed pixel size, for drawing a chart off screen where nothing can be measured. */
+export interface ChartSize {
+  width: number
+  height: number
+}
+
+/**
+ * On screen a chart fills its frame and follows it as the window resizes. Off screen, for an
+ * export, it is drawn at an exact size instead, because a resize observer has nothing to
+ * observe there and would leave the chart unmeasured or a frame late.
+ */
+function Sized({ size, children }: { size?: ChartSize; children: ReactElement<{ width?: number; height?: number }> }) {
+  if (size) return cloneElement(children, { width: size.width, height: size.height })
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      {children}
+    </ResponsiveContainer>
   )
 }
 
@@ -193,6 +224,7 @@ interface CategoryBarsProps {
   formatValue: (n: number) => string
   tooltipRows: (row: Record<string, unknown>) => Array<{ label: string; value: string }>
   labelWidth?: number
+  size?: ChartSize
 }
 
 /** Horizontal bars for ranked categories. One measure, so one color. */
@@ -202,9 +234,10 @@ export function CategoryBars({
   formatValue,
   tooltipRows,
   labelWidth = 132,
+  size,
 }: CategoryBarsProps) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <Sized size={size}>
       <BarChart data={data} layout="vertical" margin={{ top: 2, right: 54, bottom: 2, left: 0 }} barCategoryGap="30%">
         <CartesianGrid horizontal={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
@@ -236,7 +269,7 @@ export function CategoryBars({
           ))}
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
+    </Sized>
   )
 }
 
@@ -253,6 +286,7 @@ interface StackedColumnsProps {
   extraTooltipRows?: (row: Record<string, unknown>) => Array<{ label: string; value: string }>
   /** Counts have no half values, so the axis should not offer any. */
   wholeNumbers?: boolean
+  size?: ChartSize
 }
 
 export function StackedColumns({
@@ -264,14 +298,12 @@ export function StackedColumns({
   tooltipTitle,
   extraTooltipRows,
   wholeNumbers = false,
+  size,
 }: StackedColumnsProps) {
-  const colorFor = (key: string, index: number) =>
-    key === OTHER_LABEL ? theme.inkMuted : colorForIndex(index, theme.dark, theme.prefs.palette)
-
   // Recharts takes barCategoryGap off both sides of a band, so 30% leaves a 40% bar, which is
   // the brand reference's Excel gap width of 150 (a gap one and a half times the bar).
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <Sized size={size}>
       <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="30%">
         <CartesianGrid vertical={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
@@ -310,7 +342,7 @@ export function StackedColumns({
             dataKey={`byType.${key}`}
             name={key}
             stackId="a"
-            fill={colorFor(key, index)}
+            fill={stackColor(key, index, theme)}
             /* A surface-colored hairline keeps adjoining segments from bleeding together. */
             stroke={theme.surface}
             strokeWidth={1.5}
@@ -320,7 +352,7 @@ export function StackedColumns({
           />
         ))}
       </BarChart>
-    </ResponsiveContainer>
+    </Sized>
   )
 }
 
@@ -330,17 +362,7 @@ export function ChartLegend({ keys, theme }: { keys: string[]; theme: ChartTheme
     <div className="legendrow">
       {keys.map((key, index) => (
         <span className="legendrow__item" key={key}>
-          <span
-            className="legendrow__swatch"
-            style={{
-              background:
-                key === OTHER_LABEL
-                  ? theme.dark
-                    ? '#6f7a76'
-                    : '#8a8f8c'
-                  : colorForIndex(index, theme.dark, theme.prefs.palette),
-            }}
-          />
+          <span className="legendrow__swatch" style={{ background: stackColor(key, index, theme) }} />
           {key}
         </span>
       ))}
@@ -357,6 +379,7 @@ interface TrendLineProps {
   formatValue: (n: number) => string
   tooltipLabel: string
   extraTooltipRows?: (row: Record<string, unknown>) => Array<{ label: string; value: string }>
+  size?: ChartSize
 }
 
 export function TrendLine({
@@ -366,6 +389,7 @@ export function TrendLine({
   formatValue,
   tooltipLabel,
   extraTooltipRows,
+  size,
 }: TrendLineProps) {
   const filled = theme.prefs.trendStyle === 'area'
   // The same chart either way: one measure, one axis, the line in the same place. A fill only
@@ -374,7 +398,7 @@ export function TrendLine({
   const Mark = filled ? Area : Line
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <Sized size={size}>
       <Chart data={data} margin={{ top: 8, right: 12, bottom: 2, left: 4 }}>
         <CartesianGrid vertical={false} stroke={theme.grid} />
         <XAxis
@@ -419,7 +443,7 @@ export function TrendLine({
           isAnimationActive={false}
         />
       </Chart>
-    </ResponsiveContainer>
+    </Sized>
   )
 }
 
@@ -429,11 +453,12 @@ interface HistogramProps {
   data: Array<{ label: string; count: number }>
   theme: ChartTheme
   unitLabel: string
+  size?: ChartSize
 }
 
-export function Histogram({ data, theme, unitLabel }: HistogramProps) {
+export function Histogram({ data, theme, unitLabel, size }: HistogramProps) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <Sized size={size}>
       <BarChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 4 }} barCategoryGap="20%">
         <CartesianGrid vertical={false} stroke={gridStroke(theme)} strokeDasharray="3 3" />
         <XAxis
@@ -468,6 +493,69 @@ export function Histogram({ data, theme, unitLabel }: HistogramProps) {
           isAnimationActive={false}
         />
       </BarChart>
-    </ResponsiveContainer>
+    </Sized>
+  )
+}
+
+// ------------------------------------------------------------ from a spec
+
+/** Draw any dashboard chart from its spec, on screen or at a fixed size for an export. */
+export function ChartFromSpec({ spec, theme, size }: { spec: ChartSpec; theme: ChartTheme; size?: ChartSize }) {
+  switch (spec.kind) {
+    case 'stacked':
+      return (
+        <StackedColumns
+          data={spec.data}
+          stackKeys={spec.stackKeys}
+          theme={theme}
+          formatValue={spec.formatValue}
+          axisFormat={spec.axisFormat}
+          wholeNumbers={spec.wholeNumbers}
+          extraTooltipRows={spec.extraTooltipRows}
+          size={size}
+        />
+      )
+    case 'trend':
+      return (
+        <TrendLine
+          data={spec.data}
+          dataKey={spec.dataKey}
+          theme={theme}
+          formatValue={spec.formatValue}
+          tooltipLabel={spec.tooltipLabel}
+          extraTooltipRows={spec.extraTooltipRows}
+          size={size}
+        />
+      )
+    case 'bars':
+      return (
+        <CategoryBars
+          data={spec.data}
+          theme={theme}
+          formatValue={spec.formatValue}
+          tooltipRows={spec.tooltipRows}
+          labelWidth={spec.labelWidth}
+          size={size}
+        />
+      )
+    case 'histogram':
+      return <Histogram data={spec.data} theme={theme} unitLabel={spec.unitLabel} size={size} />
+  }
+}
+
+/** A dashboard chart card: the frame, the chart and, for a stacked chart, its legend. */
+export function SpecChart({ spec, theme, heightScale = 1 }: { spec: ChartSpec; theme: ChartTheme; heightScale?: number }) {
+  return (
+    <ChartFrame
+      title={spec.title}
+      subtitle={spec.subtitle}
+      wide={spec.wide}
+      height={Math.round(spec.height * heightScale)}
+      empty={spec.empty}
+      emptyLabel={spec.emptyLabel}
+      footer={spec.kind === 'stacked' ? <ChartLegend keys={spec.stackKeys} theme={theme} /> : undefined}
+    >
+      <ChartFromSpec spec={spec} theme={theme} />
+    </ChartFrame>
   )
 }

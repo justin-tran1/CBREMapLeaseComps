@@ -1,5 +1,5 @@
 import { formatDateISO } from './coerce'
-import { shapeContains } from './geometry'
+import { shapeAreaLabel, shapeContains, shapeLabel } from './geometry'
 import { resolveBrokers } from './normalize'
 import type { DateRange, FacetOptions, Filters, LeaseDeal, NumericRange, RangeBounds } from '../types'
 
@@ -262,6 +262,68 @@ export function describeActiveFilters(filters: Filters): ActiveFilterChip[] {
   }
 
   return chips
+}
+
+/** `2024-01-04` as `Jan 4, 2024`, built field by field so a UTC reading cannot slip a day. */
+function reportDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** Most values a list filter names in a report before it summarizes the rest. */
+const REPORT_LIST_LIMIT = 12
+
+/**
+ * Every active filter, spelled out for a reader who cannot click through to see it.
+ *
+ * The chips above the dashboard shorten long lists to "4 selected" because a person can open
+ * the rail to check. A report travels without the rail, so it names every value, up to a dozen
+ * per filter, and writes dates the way CBRE writes them.
+ */
+export function describeFiltersForReport(filters: Filters): string[] {
+  const lines: string[] = []
+
+  if (filters.search.trim()) lines.push(`Keyword: "${filters.search.trim()}"`)
+
+  const list = (values: string[], label: string) => {
+    if (values.length === 0) return
+    const shown = values.slice(0, REPORT_LIST_LIMIT).join(', ')
+    const more = values.length - REPORT_LIST_LIMIT
+    lines.push(`${label}: ${more > 0 ? `${shown} and ${more} more` : shown}`)
+  }
+  list(filters.cities, 'City')
+  list(filters.states, 'State')
+  list(filters.leaseTypes, 'Lease type')
+  list(filters.propertySubtypes, 'Property subtype')
+
+  const dates = (range: DateRange, label: string) => {
+    const { start, end } = range
+    if (!start && !end) return
+    const span =
+      start && end
+        ? `${reportDate(start)} to ${reportDate(end)}`
+        : start
+          ? `from ${reportDate(start)}`
+          : `through ${reportDate(end as string)}`
+    lines.push(`${label}: ${span}`)
+  }
+  dates(filters.leaseDate, 'Lease date')
+  dates(filters.executionDate, 'Signed date')
+
+  const range = (value: NumericRange, label: string, unit: string, decimals = 0) => {
+    if (value.min === null && value.max === null) return
+    lines.push(`${label}: ${rangeText(value, unit, decimals)}`)
+  }
+  range(filters.areaLeased, 'Area leased', ' SF')
+  range(filters.termMonths, 'Term', ' mos')
+  range(filters.baseRent, 'Base rent', ' /SF/Yr', 2)
+  range(filters.freeRent, 'Free rent', ' mos', 1)
+
+  if (filters.shape) lines.push(`Drawn area: ${shapeLabel(filters.shape)}, ${shapeAreaLabel(filters.shape)}`)
+  if (filters.mappedOnly) lines.push('Mapped rows only')
+
+  return lines
 }
 
 export function hasActiveFilters(filters: Filters): boolean {

@@ -965,11 +965,550 @@ const results = await page.evaluate(async () => {
   eq('the tolerance is respected',
     google3d.siteForClick(clickSites, '', { lat: 42.3656, lng: -71.086 }, 0.5)?.id, 'a')
 
+  // ------------------------------------------------------- dashboard export
+  {
+    const exportPrefs = await import('/src/lib/exportPrefs.ts')
+    const exportInput = await import('/src/export/input.ts')
+    const exportIndex = await import('/src/export/index.ts')
+    const pptxPlan = await import('/src/export/pptxPlan.ts')
+    const pdfLayout = await import('/src/export/pdfLayout.ts')
+    const exportText = await import('/src/export/text.ts')
+    const tableColumns = await import('/src/lib/tableColumns.ts')
+    const model = await import('/src/lib/dashboardModel.ts')
+    const { sampleFile } = await import('/src/lib/sampleData.ts')
+    const { readSpreadsheet } = await import('/src/lib/parse.ts')
+
+    // Stored choices are read field by field.
+    const defaults = exportPrefs.defaultExportPrefs()
+    eq('export prefs: nothing stored yields the defaults', exportPrefs.parseExportPrefs(null), defaults)
+    eq('export prefs: every part is included by default', Object.values(defaults.sections).every(Boolean), true)
+    eq('export prefs: the catalogue lists all 15 parts', exportPrefs.EXPORT_SECTION_IDS.length, 15)
+    const messy = exportPrefs.parseExportPrefs({
+      format: 'docx',
+      sections: { kpis: false, table: 'yes', bogus: true },
+      title: 42,
+      tableColumns: ['lessee', 'nope', 'compId'],
+      tableRows: 33,
+      omitConfidential: 'true',
+    })
+    eq('export prefs: an unknown format falls back to PDF', messy.format, 'pdf')
+    eq('export prefs: a stored boolean is honoured', messy.sections.kpis, false)
+    eq('export prefs: a non-boolean part is ignored', messy.sections.table, true)
+    eq('export prefs: an unknown part is dropped', 'bogus' in messy.sections, false)
+    eq('export prefs: a non-string title is ignored', messy.title, '')
+    eq('export prefs: unknown columns are dropped, the rest keep table order', messy.tableColumns, ['compId', 'lessee'])
+    eq('export prefs: an unknown row limit means every row', messy.tableRows, 'all')
+    eq('export prefs: only a real true omits confidential rows', messy.omitConfidential, false)
+    eq('export prefs: PowerPoint is kept', exportPrefs.parseExportPrefs({ format: 'pptx' }).format, 'pptx')
+    eq('export prefs: a long title is capped', exportPrefs.parseExportPrefs({ title: 'x'.repeat(300) }).title.length, 120)
+    eq('export prefs: no valid column falls back to the default set',
+      exportPrefs.parseExportPrefs({ tableColumns: ['nope'] }).tableColumns, exportPrefs.DEFAULT_TABLE_COLUMNS)
+    eq('export title: blank means the default', exportPrefs.exportTitle({ title: '   ' }), exportPrefs.DEFAULT_EXPORT_TITLE)
+    eq('export title: trimmed', exportPrefs.exportTitle({ title: '  Boston lab  ' }), 'Boston lab')
+
+    // The sample, as the app loads it.
+    const sheet = await readSpreadsheet(sampleFile())
+    const sampleDeals = normalize.normalizeDeals(sheet, fields.autoMapColumns(sheet.headers))
+    const ctxFor = (f, tableSort = tableColumns.DEFAULT_TABLE_SORT) => ({
+      deals: sampleDeals,
+      filtered: filters.applyFilters(sampleDeals, f),
+      filters: f,
+      fileName: sheet.fileName,
+      tableSort,
+      chartPrefs: chartPrefs.DEFAULT_CHART_PREFS,
+    })
+    const at = new Date(2026, 10, 18, 14, 7)
+    const all = ctxFor(filters.emptyFilters())
+    const full = exportInput.buildExportInput(all, defaults, at)
+    eq('export input: every part with data is written, in dashboard order', full.sections, exportPrefs.EXPORT_SECTION_IDS)
+    eq('export input: the default title', full.title, exportPrefs.DEFAULT_EXPORT_TITLE)
+    eq('export input: no filters, nothing listed', full.filters, [])
+    eq('export input: the table carries every matching row', full.table?.rows.length, sampleDeals.length)
+    eq('export input: the table carries the default columns',
+      full.table?.columns.map((c) => c.key), exportPrefs.DEFAULT_TABLE_COLUMNS)
+    eq('export input: the sort is described', full.table?.sortLabel, 'lease date (descending)')
+    eq('export input: six headline and three signing numbers', [full.headline.length, full.signing.length], [6, 3])
+
+    const trimmed = exportInput.buildExportInput(all, {
+      ...defaults,
+      sections: { ...defaults.sections, 'chart:topLessors': false, table: false },
+    }, at)
+    eq('export input: a part left out is not written', trimmed.sections.includes('chart:topLessors'), false)
+    eq('export input: no table when the table is left out', trimmed.table, null)
+    eq('export input: the other parts are still written', trimmed.sections.length, 13)
+
+    const conf = sampleDeals.filter(normalize.isConfidential).length
+    truthy('the sample has confidential deals to omit', conf > 0)
+    const omitted = exportInput.buildExportInput(all, { ...defaults, omitConfidential: true, tableRows: 25 }, at)
+    eq('export input: confidential rows are left out of the table', omitted.table?.rows.some(normalize.isConfidential), false)
+    eq('export input: the omitted count is reported', omitted.table?.omittedConfidential, conf)
+    eq('export input: the row limit holds', omitted.table?.rows.length, 25)
+    eq('export input: rows available before the limit', omitted.table?.availableRows, sampleDeals.length - conf)
+    eq('export input: charts still count confidential deals', omitted.matching, sampleDeals.length)
+
+    const byArea = exportInput.buildExportInput(ctxFor(filters.emptyFilters(), { key: 'area', direction: 'desc' }), defaults, at)
+    const areas = byArea.table.rows.map((d) => d.areaLeased).filter((v) => v != null)
+    eq('export input: the table follows the on-screen sort', areas.every((v, i) => i === 0 || areas[i - 1] >= v), true)
+
+    // Nothing matching: every part is unavailable, and says why.
+    const none = ctxFor({ ...filters.emptyFilters(), search: 'zzzz-no-such-deal' })
+    const noneModel = model.buildDashboardModel(none.deals, none.filtered)
+    const noneStates = exportInput.sectionStates(noneModel, model.chartSpecs(noneModel), none, defaults)
+    eq('export states: nothing matching makes every part unavailable', noneStates.every((s) => !s.available), true)
+    eq('export states: and says why', noneStates[0].reason, 'No deals match the current filters.')
+    eq('export input: nothing to write when nothing matches', exportInput.buildExportInput(none, defaults, at).sections, [])
+
+    const states = exportInput.sectionStates(model.buildDashboardModel(all.deals, all.filtered), full.specs, all, defaults)
+    eq('export states: chart parts are named by their titles',
+      states.filter((s) => s.def.chartId).map((s) => s.label),
+      [...model.MAIN_CHART_IDS, ...model.SIGNED_CHART_IDS].map((id) => full.specs[id].title))
+    eq('export states: the table part counts rows and columns', states.find((s) => s.def.id === 'table').hint,
+      `${sampleDeals.length} rows, ${exportPrefs.DEFAULT_TABLE_COLUMNS.length} columns`)
+
+    // Report wording.
+    eq('report filters: a date range reads in words',
+      filters.describeFiltersForReport({ ...filters.emptyFilters(), leaseDate: { start: '2024-01-01', end: '2025-06-30' } }),
+      ['Lease date: Jan 1, 2024 to Jun 30, 2025'])
+    const manyCities = Array.from({ length: 14 }, (_, i) => `City ${String(i + 1).padStart(2, '0')}`)
+    const cityLine = filters.describeFiltersForReport({ ...filters.emptyFilters(), cities: manyCities })[0] ?? ''
+    truthy('report filters: a long list ends with a count', cityLine.endsWith('and 2 more'), cityLine)
+    eq('export file name', exportInput.exportFileName('pptx', new Date(2026, 0, 5, 9, 3)), 'cbre-hcls-dashboard-20260105-0903.pptx')
+    eq('export source line',
+      exportInput.sourceLine({ sourceFile: 'a.csv', matching: 1234, totalDeals: 5000, generatedAt: new Date(2026, 10, 18) }),
+      'Source: a.csv. 1,234 of 5,000 deals. Generated Nov 18, 2026.')
+
+    // PDF text: what the embedded fonts cannot draw is decomposed or marked, never silently lost.
+    eq('pdf text: WinAnsi passes through', exportText.pdfSafe('Café — “quotes” – x'), 'Café — “quotes” – x')
+    eq('pdf text: accents outside WinAnsi decompose', exportText.pdfSafe('Łódź'), 'Lódz')
+    eq('pdf text: ligatures decompose', exportText.pdfSafe('Ærø ﬁne ½'), 'Ærø fine ½')
+    eq('pdf text: unsupported scripts are marked', exportText.pdfSafe('北京'), '??')
+    eq('pdf text: tabs and newlines become spaces', exportText.pdfSafe('a\tb\nc'), 'a b c')
+    eq('pdf text: a minus sign becomes a hyphen', exportText.pdfSafe('−5'), '-5')
+
+    // Length estimates.
+    const pdfPlan = pdfLayout.planPdf(full, pdfLayout.metricMeasure)
+    truthy('pdf plan: the estimate covers the pages planned', pdfPlan.estimatedPages >= pdfPlan.pages.length)
+    const shorter = exportIndex.estimateExport(trimmed).length
+    truthy('pdf estimate: fewer parts, fewer pages', shorter < exportIndex.estimateExport(full).length, `${shorter}`)
+    const deckInput = { ...full, format: 'pptx' }
+    const slides = pptxPlan.planSlides(deckInput)
+    const estimate = exportIndex.estimateExport(deckInput)
+    eq('deck estimate: the exact slide count', estimate.length, slides.length)
+    eq('deck plan: a title slide and one slide per part before the table',
+      slides.filter((s) => s.kind !== 'table').length, 1 + full.sections.filter((id) => id !== 'table').length)
+    const tableSlides = slides.filter((s) => s.kind === 'table')
+    eq('deck plan: every row once, in order', tableSlides.flatMap((s) => s.rows), sampleDeals.map((_, i) => i))
+    eq('deck plan: table slides are numbered', tableSlides.map((s) => `${s.part}/${s.parts}`).at(-1),
+      `${tableSlides.length}/${tableSlides.length}`)
+    eq('deck estimate: reports the table size', estimate.tableFontSize, tableSlides[0].layout.fontSize)
+
+    // The deck's table: widths fill the slide, nothing crosses the footer, no word is broken.
+    const checkLayout = (label, table) => {
+      const layout = pptxPlan.layoutPptxTable(table)
+      const widthSum = layout.colW.reduce((a, b) => a + b, 0)
+      truthy(`${label}: columns fill the table width`, Math.abs(widthSum - pptxPlan.TABLE_WIDTH) < 1e-6, `${widthSum}`)
+      const budget = pptxPlan.TABLE_BOTTOM - pptxPlan.TABLE_TOP
+      const tallest = Math.max(
+        ...layout.slides.map((rows) => layout.headHeight + rows.reduce((sum, i) => sum + layout.rowHeights[i], 0)),
+      )
+      truthy(`${label}: every slide's table stays above the footer`, tallest <= budget + 1e-9, `${tallest} > ${budget}`)
+      return layout
+    }
+    const deckTable = checkLayout('deck table, default columns', full.table)
+    const brokenWords = []
+    full.table.rows.forEach((deal) =>
+      full.table.columns.forEach((column, i) => {
+        for (const word of column.render(deal).split(/\s+/).filter(Boolean)) {
+          if (pptxPlan.linesIn(word, deckTable.colW[i], deckTable.fontSize) > 1) brokenWords.push(word)
+        }
+      }),
+    )
+    eq('deck table: no word is broken across lines', brokenWords.slice(0, 5), [])
+    const wrappedIds = full.table.rows.filter((deal) => pptxPlan.linesIn(deal.compId, deckTable.colW[0], deckTable.fontSize) > 1)
+    eq('deck table: comp IDs stay on one line', wrappedIds.length, 0)
+    const headerWraps = full.table.columns.filter((c, i) => pptxPlan.linesIn(c.label, deckTable.colW[i], deckTable.fontSize, true) > 1)
+    eq('deck table: short headers stay on one line', headerWraps.map((c) => c.key).filter((k) => ['compId', 'confidentiality', 'state', 'term'].includes(k)), [])
+
+    const narrow = checkLayout('deck table, three columns', {
+      ...full.table,
+      columns: ['compId', 'city', 'area'].map((k) => tableColumns.tableColumn(k)),
+    })
+    eq('deck table: three columns set at the largest size', narrow.fontSize, 10)
+    const wide = checkLayout('deck table, every column', { ...full.table, columns: tableColumns.TABLE_COLUMNS })
+    truthy('deck table: every column steps the type down', wide.fontSize < narrow.fontSize, `${wide.fontSize}`)
+
+    // A table too wide for its floors: short columns wrap before any word breaks, and words break
+    // where it touches the fewest cells. Never a comp ID, never a header word.
+    const brokenIn = (table, layout) => {
+      const words = []
+      layout.cells.forEach((row) =>
+        row.forEach((cell, i) => {
+          for (const word of cell.split(/\s+/).filter(Boolean)) {
+            if (pptxPlan.linesIn(word, layout.colW[i], layout.fontSize) > 1) words.push(`${table.columns[i].key}:${word}`)
+          }
+        }),
+      )
+      return words
+    }
+    const headerBreaks = (table, layout) =>
+      table.columns.filter((c, i) =>
+        c.label.split(' ').some((word) => pptxPlan.linesIn(word, layout.colW[i], layout.fontSize, true) > 1),
+      ).map((c) => c.key)
+    const idsWhole = (table, layout) =>
+      layout.cells.every((row) => pptxPlan.linesIn(row[0], layout.colW[0], layout.fontSize) === 1)
+
+    const withOpex = { ...full.table, columns: [...exportPrefs.DEFAULT_TABLE_COLUMNS, 'opex'].map((k) => tableColumns.tableColumn(k)) }
+    const opexLayout = checkLayout('deck table, default columns and OpEx', withOpex)
+    eq('deck table: one more column breaks no word', brokenIn(withOpex, opexLayout), [])
+    truthy('deck table: one more column keeps comp IDs whole', idsWhole(withOpex, opexLayout))
+
+    const everyTable = { ...full.table, columns: tableColumns.TABLE_COLUMNS }
+    const everyLayout = wide
+    truthy('deck table: every column keeps comp IDs whole', idsWhole(everyTable, everyLayout))
+    eq('deck table: every column breaks no header word', headerBreaks(everyTable, everyLayout), [])
+    truthy('deck table: every column breaks few words', brokenIn(everyTable, everyLayout).length <= 20,
+      `${brokenIn(everyTable, everyLayout).length}`)
+    const least = 0.12 + (0.92 * everyLayout.fontSize) / 72
+    truthy('deck table: no column narrower than a character and its margins',
+      everyLayout.colW.every((w) => w >= least - 1e-9), JSON.stringify(everyLayout.colW))
+
+    const guidRows = full.table.rows.map((d, i) => ({ ...d, compId: `3f2504e0-4f89-11d3-9a0c-${String(305e8 + i * 7919).slice(0, 12)}` }))
+    const guidTable = { ...full.table, rows: guidRows }
+    const guidLayout = checkLayout('deck table, GUID comp IDs', guidTable)
+    truthy('deck table: a GUID comp ID stays whole', idsWhole(guidTable, guidLayout))
+
+    // A value too long for any slide is cut at an ellipsis rather than running off it.
+    let schedule = ''
+    for (let y = 1; y <= 30; y++) schedule += `Year ${y}: $${(60 * 1.03 ** y).toFixed(2)}/SF NNN with pass-throughs over a ${2020 + y} base year; `
+    const longRows = full.table.rows.map((d, i) => (i === 0 ? { ...d, escalationComments: schedule.trim() } : d))
+    const longTable = { ...full.table, rows: longRows, columns: tableColumns.TABLE_COLUMNS }
+    const longLayout = checkLayout('deck table, a 2,500-character comment', longTable)
+    const escalation = tableColumns.TABLE_COLUMNS.findIndex((c) => c.key === 'escalation')
+    truthy('deck table: an overlong value ends in an ellipsis', longLayout.cells[0][escalation].endsWith('…'),
+      longLayout.cells[0][escalation].slice(-20))
+    const fullEscalation = longTable.columns[escalation].render(longRows[0])
+    truthy('deck table: the cut value is the start of the original',
+      fullEscalation.length > longLayout.cells[0][escalation].length &&
+        fullEscalation.startsWith(longLayout.cells[0][escalation].slice(0, -1).trimEnd()))
+    truthy('deck table: other cells are untouched', longLayout.cells[1].every((cell, i) => cell === longTable.columns[i].render(longRows[1])))
+
+    // Breaking words: the narrowing takes width where the fewest cells break, and a figure gives
+    // way last. Two long tenant names: their words break, not "105,000 SF".
+    const renamedTenants = full.table.rows.map((d) =>
+      d.compId === 'CMP-481061' ? { ...d, lessee: 'Atlanta Gastroenterology Associates' }
+        : d.compId === 'CMP-480510' ? { ...d, lessee: 'Sutro Pharmaceuticals' } : d)
+    const tenantTable = { ...full.table, rows: renamedTenants.slice(0, 25), columns: tableColumns.TABLE_COLUMNS }
+    const tenantLayout = checkLayout('deck table, two long tenant names, every column', tenantTable)
+    const tenantBroken = brokenIn(tenantTable, tenantLayout)
+    eq('deck table: no figure breaks while a name can',
+      tenantBroken.filter((w) => /^(area|baseRent|opex|ti|term|freeRent):/.test(w)), [])
+    const brokenCells = new Set(tenantLayout.cells.flatMap((row, r) => row.map((cell, i) =>
+      cell.split(/\s+/).some((word) => pptxPlan.linesIn(word, tenantLayout.colW[i], tenantLayout.fontSize) > 1) ? `${r}:${i}` : null)).filter(Boolean))
+    truthy('deck table: as few cells break as can', brokenCells.size <= 4, `${brokenCells.size}: ${tenantBroken.join(', ')}`)
+
+    // Text from a spreadsheet: control characters that would make a deck corrupt are dropped.
+    eq('clean text: a stray control character goes', coerce.toText('Ventas\u0001'), 'Ventas')
+    eq("clean text: Word's non-breaking hyphen reads as a hyphen", coerce.toText('Ventas\u001ELillibridge'), 'Ventas-Lillibridge')
+    eq("clean text: Word's optional hyphen goes", coerce.toText('Bio\u001Ftech'), 'Biotech')
+    eq('clean text: UTF-16 read as bytes loses its NULs', coerce.toText('V\u0000e\u0000n\u0000'), 'Ven')
+    eq('clean text: a lone surrogate goes', coerce.toText('a\uD800b\uDC00c'), 'abc')
+    eq('clean text: a real emoji stays', coerce.toText('Lab 🧪 one'), 'Lab 🧪 one')
+    eq('clean text: noncharacters go', coerce.toText('x￾y￿'), 'xy')
+    eq('clean text: a byte-order mark goes', coerce.toText('﻿Acme'), 'Acme')
+    eq('clean text: N/A with a stray control character is still blank', coerce.toText('N/A\u0002'), '')
+    eq('clean text: tabs and newlines still collapse', coerce.toText(' a\t\r\nb '), 'a b')
+    eq('export title: cleaned like a cell', exportPrefs.exportTitle({ title: 'Kendall\u0007 lab' }), 'Kendall lab')
+
+    // Confidentiality, read from the words sheets use.
+    const confCsv = [
+      'Comp ID,Confidentiality,Address,City,State',
+      'A1,Confidential,1 Main St,Boston,MA',
+      'A2,Non-Confidential,2 Main St,Boston,MA',
+      'A3,Unrestricted,3 Main St,Boston,MA',
+      'A4,Restricted,4 Main St,Boston,MA',
+      'A5,N/A,5 Main St,Boston,MA',
+      'A6,Undisclosed,6 Main St,Boston,MA',
+      'A7,X,7 Main St,Boston,MA',
+      'A8,No,8 Main St,Boston,MA',
+      'A9,Not confidential,9 Main St,Boston,MA',
+      'A10,Public,10 Main St,Boston,MA',
+    ].join('\n')
+    const confSheet = await readSpreadsheet(new File([confCsv], 'conf.csv', { type: 'text/csv' }))
+    const confDeals = normalize.normalizeDeals(confSheet, fields.autoMapColumns(confSheet.headers))
+    eq('confidentiality: the words flag the right deals',
+      confDeals.filter(normalize.isConfidential).map((d) => d.compId), ['A1', 'A4', 'A6', 'A7'])
+    eq('confidentiality: "Confidential" survives as the flag', confDeals[0].confidentiality, 'Confidential')
+    eq('confidentiality: an X reads as confidential', normalize.confidentialityLabel(confDeals[6]), 'Confidential')
+    eq('confidentiality: a reason is kept as the label', normalize.confidentialityLabel(confDeals[3]), 'Restricted')
+    eq('confidentiality: "Non-Confidential" however the words are joined',
+      ['Non - Confidential', 'Non‑Confidential', 'Not–Confidential', 'NONCONFIDENTIAL', 'non confidential', 'Not  restricted']
+        .filter((v) => normalize.isConfidential({ confidentiality: v })), [])
+    eq('confidentiality: a qualified flag still counts', normalize.isConfidential({ confidentiality: 'Confidential - client request' }), true)
+    eq('confidentiality: the mapper reads the flag word', [normalize.confidentialityText(' Confidential '), normalize.confidentialityText('N/A')], ['Confidential', ''])
+    eq('pdf text: a non-breaking hyphen prints as a hyphen', exportText.pdfSafe('Non‑Confidential'), 'Non-Confidential')
+
+    // Wording.
+    eq('sort wording: keeps an acronym', tableColumns.describeSort({ key: 'compId', direction: 'asc' }), 'comp ID (ascending)')
+    eq('sort wording: TI allowance', tableColumns.describeSort({ key: 'ti', direction: 'desc' }), 'TI allowance (descending)')
+    eq('sort wording: OpEx', tableColumns.describeSort({ key: 'opex', direction: 'asc' }), 'OpEx (ascending)')
+    eq('sort wording: plain words lowercase', tableColumns.describeSort({ key: 'executionDate', direction: 'desc' }), 'signed date (descending)')
+    eq('coverage caption: one deal in the singular', model.coverageLead(1), 'Whether the one matching row carries a value for each field')
+    eq('coverage caption: many deals', model.coverageLead(1234), 'How many of the 1,234 matching rows carry a value for each field')
+    const sampleDates = [new Date(2024, 0, 5), new Date(1999, 11, 31), new Date(2031, 6, 4)]
+    eq('date format: the shared formatter matches the locale call',
+      sampleDates.map(format.fmtDate),
+      sampleDates.map((d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })))
+
+    // PDF: the signed date heading moves with the chart under it.
+    const orphanInput = exportInput.buildExportInput(all, {
+      ...defaults,
+      sections: { ...defaults.sections, signedKpis: false, 'chart:termDistribution': false },
+    }, at)
+    const orphanPlan = pdfLayout.planPdf(orphanInput, pdfLayout.metricMeasure)
+    const pageOf = (pred) => orphanPlan.pages.findIndex((blocks) => blocks.some(pred))
+    eq('pdf plan: the signed date heading shares a page with its first chart',
+      pageOf((b) => b.kind === 'heading'), pageOf((b) => b.kind === 'chart' && b.chartId === 'signedByPeriod'))
+
+    // The writers fetch their fonts and wordmark, so the geocoding stub steps aside for them.
+    const stubbedFetch = window.fetch
+    window.fetch = realFetch
+
+    // PDF: the dialog's page count is the file's, for a spread of choices.
+    const pdfPages = async (input) => {
+      const text = new TextDecoder('latin1').decode(new Uint8Array(await (await exportIndex.writeExport(input)).arrayBuffer()))
+      return (text.match(/\/Type \/Page\b(?!s)/g) || []).length
+    }
+    const pdfCases = {
+      'default parts': full,
+      'every column': exportInput.buildExportInput(all, { ...defaults, tableColumns: tableColumns.TABLE_COLUMNS.map((c) => c.key) }, at),
+      'signed numbers and term chart left out': orphanInput,
+      'a three-line title': exportInput.buildExportInput(all, { ...defaults, title: 'Kendall Square, Seaport and Longwood lab and office comps '.repeat(3) }, at),
+      'the table alone': exportInput.buildExportInput(all, {
+        ...defaults,
+        sections: Object.fromEntries(Object.keys(defaults.sections).map((k) => [k, k === 'table'])),
+      }, at),
+      'long unbroken names': exportInput.buildExportInput({
+        ...all,
+        filtered: all.filtered.map((d, i) => ({ ...d, lessee: `AstraZeneca/MedImmune/Alexion/Viela-Bio-JointVenture-${i}` })),
+      }, defaults, at),
+    }
+    for (const [label, input] of Object.entries(pdfCases)) {
+      eq(`pdf estimate: matches the file, ${label}`, exportIndex.estimateExport(input).length, await pdfPages(input))
+    }
+
+    // A row taller than a page: the table library splits it by whole lines, each piece carrying
+    // the cell padding again. A rent schedule in the escalation comments makes one.
+    const rentSchedule = (years) => {
+      const parts = ['Fixed rent schedule as follows.']
+      for (let y = 1; y <= years; y++) {
+        parts.push(`Lease year ${y}: annual base rent of $${(38.5 * 1.03 ** (y - 1)).toFixed(2)} per RSF triple net, payable monthly in advance.`)
+      }
+      return parts.join(' ')
+    }
+    const withSchedule = (compId, years) => {
+      const swap = (d) => (d.compId === compId ? { ...d, escalationComments: rentSchedule(years) } : d)
+      return { ...all, deals: all.deals.map(swap), filtered: all.filtered.map(swap) }
+    }
+    const tableOnly = { ...defaults, sections: Object.fromEntries(Object.keys(defaults.sections).map((k) => [k, k === 'table'])) }
+    const everyColumn = tableColumns.TABLE_COLUMNS.map((c) => c.key)
+    for (const years of [15, 16, 17]) {
+      const tall = exportInput.buildExportInput(withSchedule('CMP-480741', years), { ...tableOnly, tableColumns: everyColumn }, at)
+      const tallest = Math.max(...pdfLayout.pdfTableRows(tall.table).body)
+      truthy(`pdf estimate: the ${years}-year schedule makes a row taller than a page`, tallest > pdfLayout.CONTENT_BOTTOM - pdfLayout.CONTENT_TOP, `${tallest}`)
+      eq(`pdf estimate: matches the file, a ${years}-year schedule split across pages`, exportIndex.estimateExport(tall).length, await pdfPages(tall))
+    }
+    const tallFull = exportInput.buildExportInput(withSchedule('CMP-480741', 21), { ...defaults, tableColumns: everyColumn }, at)
+    eq('pdf estimate: matches the file, the full report with a split row', exportIndex.estimateExport(tallFull).length, await pdfPages(tallFull))
+
+    // A first row too tall to sit under the table heading on any page, but not tall enough for the
+    // library to split, moves to a page of its own; the heading does not take one too.
+    const everyInput = exportInput.buildExportInput(all, { ...defaults, tableColumns: everyColumn }, at)
+    const firstRowOf = (lines) => {
+      const words = 'Atlanta Gastroenterology Associates Regional Partners'.split(' ')
+      const first = everyInput.table.rows[0]
+      let name = ''
+      for (let k = 0; k < 4000; k++) {
+        const next = `${name} ${words[k % words.length]}`.trim()
+        const height = pdfLayout.pdfTableRows({ ...everyInput.table, rows: [{ ...first, lessee: next }] }).body[0]
+        const n = Math.round((height - 2 * pdfLayout.TABLE_PADDING) / (pdfLayout.TABLE_FONT * 1.15))
+        if (n > lines) return null
+        if (n === lines) {
+          const swap = (d) => (d.compId === first.compId ? { ...d, lessee: next } : d)
+          return exportInput.buildExportInput({ ...all, deals: all.deals.map(swap), filtered: all.filtered.map(swap) },
+            { ...defaults, tableColumns: everyColumn }, at)
+        }
+        name = next
+      }
+      return null
+    }
+    // 51 lines: the row fits under the heading on a fresh page, so the heading moves with it.
+    // 53 lines: it cannot, and is not split, so the heading stays put under field coverage.
+    for (const [lines, after] of [[51, 1], [53, 0]]) {
+      const input = firstRowOf(lines)
+      truthy(`pdf plan: a first row of ${lines} lines can be built`, !!input)
+      if (!input) continue
+      const plan = pdfLayout.planPdf(input, pdfLayout.metricMeasure)
+      const pageOfKind = (kind) => plan.pages.findIndex((blocks) => blocks.some((b) => b.kind === kind))
+      eq(`pdf plan: a first row of ${lines} lines puts the table heading ${after ? 'on the next page, with it' : 'under field coverage'}`,
+        pageOfKind('tableHead') - pageOfKind('coverage'), after)
+      eq(`pdf estimate: matches the file, a first row of ${lines} lines`, exportIndex.estimateExport(input).length, await pdfPages(input))
+    }
+
+    // A deck built from a dirty sheet, for the XML check below.
+    const dirtyCsv = [
+      'Comp ID,Property Name,Address,City,State,Lessor,Lessee,Lease Date,Area Leased,Base Rent',
+      'D1,Gateway of Paci\u0002c,1 Main St,Boston\u0003,MA,Ventas\u0001,Summit\u0001Dermatology & <Partners>,2024-01-05,12000,45',
+      'D2,Tower\u001EA,2 Main St,Boston,MA,Welltower,Sutro\u001FBiologics,2024-02-05,9000,50',
+      'D3,Plain Plaza,3 Main St,Cambridge,MA,Ventas\u0001,Acme￾ Bio,2024-03-05,15000,60',
+    ].join('\n')
+    const dirtySheet = await readSpreadsheet(new File([dirtyCsv], 'dirty\u0004.csv', { type: 'text/csv' }))
+    const dirtyDeals = normalize.normalizeDeals(dirtySheet, fields.autoMapColumns(dirtySheet.headers))
+    const dirtyFilters = { ...filters.emptyFilters(), search: 'Bost\u0005' }
+    const dirtyInput = exportInput.buildExportInput({
+      deals: dirtyDeals,
+      filtered: dirtyDeals,
+      filters: dirtyFilters,
+      fileName: 'comps\u0006.xlsx',
+      tableSort: tableColumns.DEFAULT_TABLE_SORT,
+      chartPrefs: chartPrefs.DEFAULT_CHART_PREFS,
+    }, { ...defaults, format: 'pptx', title: 'Dirty\u0007 deck' }, at)
+    const dirtyBytes = new Uint8Array(await (await exportIndex.writeExport(dirtyInput)).arrayBuffer())
+    let dirtyBinary = ''
+    for (let i = 0; i < dirtyBytes.length; i += 0x8000) dirtyBinary += String.fromCharCode(...dirtyBytes.subarray(i, i + 0x8000))
+    window.__dirtyDeck = btoa(dirtyBinary)
+
+    // A table that ends on a slide of one row says so in the singular.
+    const texas = exportInput.buildExportInput(ctxFor({ ...filters.emptyFilters(), states: ['TX'] }), { ...defaults, format: 'pptx' }, at)
+    const texasPlan = pptxPlan.planSlides(texas).filter((s) => s.kind === 'table')
+    eq('deck plan: Texas ends on a one-row slide', texasPlan.at(-1)?.rows.length, 1)
+    const texasBytes = new Uint8Array(await (await exportIndex.writeExport(texas)).arrayBuffer())
+    let texasBinary = ''
+    for (let i = 0; i < texasBytes.length; i += 0x8000) texasBinary += String.fromCharCode(...texasBytes.subarray(i, i + 0x8000))
+    window.__texasDeck = { b64: btoa(texasBinary), rows: texas.table.rows.length }
+
+    // Chart labels with letters the embedded condensed face lacks, for the PDF text check below.
+    const rename = (d) => (d.lessor === 'Ventas' ? { ...d, lessor: 'Łódź Ventas' } : d.lessor === 'Welltower' ? { ...d, lessor: '三井 Welltower' } : d)
+    const intl = exportInput.buildExportInput({ ...all, deals: all.deals.map(rename), filtered: all.filtered.map(rename) }, defaults, at)
+    eq('pdf labels: the renamed lessors are charted', intl.specs.topLessors.data.map((d) => d.name).filter((n) => /Ventas|Welltower/.test(n)).sort(),
+      ['Łódź Ventas', '三井 Welltower'])
+    const intlBytes = new Uint8Array(await (await exportIndex.writeExport(intl)).arrayBuffer())
+    let intlBinary = ''
+    for (let i = 0; i < intlBytes.length; i += 0x8000) intlBinary += String.fromCharCode(...intlBytes.subarray(i, i + 0x8000))
+    window.__intlPdf = btoa(intlBinary)
+    window.fetch = stubbedFetch
+    eq('dirty sheet: names come through clean', dirtyDeals.map((d) => [d.propertyName, d.lessee]), [
+      ['Gateway of Pacic', 'SummitDermatology & <Partners>'],
+      ['Tower-A', 'SutroBiologics'],
+      ['Plain Plaza', 'Acme Bio'],
+    ])
+  }
+
   window.fetch = realFetch
   geocode.clearGeocodeCache()
 
   return out
 })
+
+// The deck built from a dirty sheet: every XML part, those of each chart's embedded workbook
+// included, must parse. XML cannot carry a control character even escaped, and PowerPoint
+// rejects a part that holds one.
+{
+  const { default: JSZip } = await import('jszip')
+  const parts = []
+  const collect = async (zip, prefix) => {
+    for (const [name, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue
+      if (/\.(xml|rels)$/.test(name)) parts.push([`${prefix}${name}`, await entry.async('string')])
+      else if (name.endsWith('.xlsx')) await collect(await JSZip.loadAsync(await entry.async('uint8array')), `${prefix}${name}!/`)
+    }
+  }
+  const b64 = await page.evaluate(() => window.__dirtyDeck)
+  await collect(await JSZip.loadAsync(Buffer.from(b64, 'base64')), '')
+  const malformed = await page.evaluate((list) =>
+    list
+      .filter(([, xml]) => new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagName('parsererror').length > 0)
+      .map(([name]) => name), parts)
+  results.push({ ok: parts.length > 100, name: 'dirty deck: every part read, embedded workbooks included', detail: `${parts.length} parts` })
+  results.push({ ok: malformed.length === 0, name: 'dirty deck: every XML part is well-formed', detail: malformed.join(', ') })
+  const text = parts.map(([, xml]) => xml).join('\n')
+  results.push({ ok: text.includes('Tower-A'), name: "dirty deck: Word's non-breaking hyphen prints as a hyphen", detail: '' })
+  results.push({ ok: text.includes('Dirty deck'), name: 'dirty deck: the typed title is cleaned', detail: '' })
+
+  const texas = await page.evaluate(() => window.__texasDeck)
+  const texasZip = await JSZip.loadAsync(Buffer.from(texas.b64, 'base64'))
+  const texasText = (
+    await Promise.all(
+      Object.keys(texasZip.files).filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f)).map((f) => texasZip.file(f).async('string')),
+    )
+  ).join('\n')
+  const lastRow = `Row ${texas.rows} of ${texas.rows},`
+  results.push({ ok: texasText.includes(lastRow), name: 'deck wording: a one-row slide reads "Row N of M"', detail: lastRow })
+  results.push({ ok: !/Rows (\d+)-\1 of/.test(texasText), name: 'deck wording: never "Rows N-N"', detail: '' })
+}
+
+// The PDF with non-Latin lessors. Chart labels are drawn in the embedded condensed face, whose
+// text is glyph IDs; each font's ToUnicode map turns them back into letters.
+{
+  const { inflateSync } = await import('node:zlib')
+  const buffer = Buffer.from(await page.evaluate(() => window.__intlPdf), 'base64')
+  const bin = buffer.toString('latin1')
+  const objects = new Map()
+  for (const m of bin.matchAll(/(\d+) 0 obj([\s\S]*?)endobj/g)) {
+    const body = m[2]
+    const at = body.search(/stream\r?\n/)
+    let stream = null
+    if (at >= 0) {
+      const start = m.index + m[0].indexOf(body) + body.indexOf('\n', at) + 1
+      try {
+        stream = inflateSync(buffer.subarray(start, bin.indexOf('endstream', start))).toString('latin1')
+      } catch {
+        stream = null
+      }
+    }
+    objects.set(m[1], { dict: at >= 0 ? body.slice(0, at) : body, stream })
+  }
+  const cmaps = new Map()
+  for (const m of bin.matchAll(/\/(F\d+) (\d+) 0 R/g)) {
+    const font = objects.get(m[2])
+    const toUnicode = /\/ToUnicode (\d+) 0 R/.exec(font?.dict ?? '')?.[1]
+    if (!toUnicode || cmaps.has(m[1])) continue
+    const map = new Map()
+    const cmap = objects.get(toUnicode)?.stream ?? ''
+    for (const block of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+      for (const e of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) map.set(parseInt(e[1], 16), String.fromCodePoint(parseInt(e[2], 16)))
+    }
+    for (const block of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+      for (const e of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) {
+        for (let g = parseInt(e[1], 16), u = parseInt(e[3], 16); g <= parseInt(e[2], 16); g++, u++) map.set(g, String.fromCodePoint(u))
+      }
+    }
+    cmaps.set(m[1], map)
+  }
+  const literal = (raw) =>
+    raw.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, e) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' })[e] ?? String.fromCharCode(parseInt(e, 8)))
+  const winAnsi = (text) => Buffer.from(text, 'latin1').toString('latin1')
+  const runs = []
+  for (const { stream } of objects.values()) {
+    if (!stream || !/\bTf\b/.test(stream)) continue
+    let font = ''
+    for (const t of stream.matchAll(/\/(F\d+) [\d.]+ Tf|\(((?:\\.|[^\\)])*)\)\s*Tj|<([0-9a-fA-F]+)>\s*Tj/g)) {
+      if (t[1]) font = t[1]
+      else if (t[2] !== undefined) runs.push(winAnsi(literal(t[2])))
+      else if (t[3] !== undefined) {
+        const map = cmaps.get(font)
+        let text = ''
+        for (let i = 0; i + 4 <= t[3].length; i += 4) text += map?.get(parseInt(t[3].slice(i, i + 4), 16)) ?? '\uFFFD'
+        runs.push(text)
+      }
+    }
+  }
+  const text = runs.join(' ')
+  results.push({ ok: cmaps.size > 0 && text.includes('Total area leased') && text.includes('Q1 22'), name: 'pdf labels: the text decodes, the condensed face included', detail: `${cmaps.size} maps` })
+  // Ł and ź are not in the face and decompose; ó is, and stays.
+  results.push({ ok: text.includes('Lódz Ventas'), name: 'pdf labels: a letter the face lacks is decomposed in a chart label', detail: '' })
+  results.push({ ok: !text.includes('ód Ventas'), name: 'pdf labels: never silently dropped', detail: '' })
+  results.push({ ok: text.includes('?? Welltower'), name: 'pdf labels: an unsupported script is marked in a chart label', detail: '' })
+}
 
 let failed = 0
 for (const r of results) {
