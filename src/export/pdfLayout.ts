@@ -423,9 +423,18 @@ export function planPdf(input: ExportInput, measure: Measure): PdfPlan {
     const subtitleLines = wrapText(notes.join(' '), CONTENT_WIDTH, 'body', 8, measure)
     const height = 18 + subtitleLines.length * 10.5 + 6
     const rows = pdfTableRows(t)
-    // Keep the heading with the column headers and the first few rows rather than stranding it.
-    const opening = rows.head + rows.body.slice(0, 3).reduce((sum, h) => sum + h, 0)
-    ensure(height + Math.min(opening, CONTENT_BOTTOM - CONTENT_TOP - height))
+    // Keep the heading with the column header and as many of the first three rows as can sit under
+    // it on a page. A first row too tall for that goes where the table library puts it: split from
+    // here when it is taller than a page, so a line of it stays; otherwise whole onto the next
+    // page, so the heading keeps only the header row rather than taking a page of its own.
+    const room = CONTENT_BOTTOM - CONTENT_TOP - height
+    let keep = rows.head
+    let kept = 0
+    while (kept < Math.min(3, rows.body.length) && keep + rows.body[kept] <= room) keep += rows.body[kept++]
+    if (kept === 0 && rows.body.length > 0 && rows.body[0] > CONTENT_BOTTOM - CONTENT_TOP - rows.head) {
+      keep += TABLE_FONT * LINE_HEIGHT_FACTOR + TABLE_PADDING * 2
+    }
+    ensure(height + keep)
     page().push({ kind: 'tableHead', y, height, heading: tableHeading(t), subtitleLines })
     y += height
     tableStart = { page: pages.length - 1, y }
@@ -471,7 +480,9 @@ export function pdfTableRows(table: ExportTable): PdfTableRows {
  * row taller than a page split across as many as it needs.
  */
 export function tablePagesAfter(rows: PdfTableRows, startY: number): number {
-  const oneLine = TABLE_FONT * LINE_HEIGHT_FACTOR + TABLE_PADDING * 2
+  const lineHeight = TABLE_FONT * LINE_HEIGHT_FACTOR
+  const padding = TABLE_PADDING * 2
+  const oneLine = lineHeight + padding
   const pageRoom = CONTENT_BOTTOM - CONTENT_TOP - rows.head
   let pages = 0
   let y = startY
@@ -494,12 +505,14 @@ export function tablePagesAfter(rows: PdfTableRows, startY: number): number {
     }
     // Moved whole to the next page, unless it is taller than a page and a line of it fits here.
     if (!(height > pageRoom && oneLine < CONTENT_BOTTOM - y)) nextPage()
-    let rest = height
-    while (rest > CONTENT_BOTTOM - y) {
-      rest -= CONTENT_BOTTOM - y
+    // Split by whole lines, as the library splits it: each page keeps the lines that fit inside
+    // the cell padding, and the rest carries the padding again onto the next page.
+    let lines = Math.round((height - padding) / lineHeight)
+    while (lines * lineHeight + padding > CONTENT_BOTTOM - y) {
+      lines -= Math.max(1, Math.floor((CONTENT_BOTTOM - y - padding) / lineHeight))
       nextPage()
     }
-    y += rest
+    y += lines * lineHeight + padding
   }
   return pages
 }

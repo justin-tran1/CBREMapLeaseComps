@@ -176,60 +176,94 @@ function fitColumns(naturalEms: number[], minimumEms: number[], fontSize: number
 type Need = [width: number, weight: number]
 
 /**
- * Take `excess` inches out of the columns a step at a time, each step where it costs the fewest
- * cells per inch: narrowing a column below a width costs every cell that needs that width.
- * No column goes below its floor. Returns what could not be taken.
+ * Take at least `excess` inches out of the columns at the least cost. Narrowing a column below a
+ * width costs the weight of every cell that needs that width, and no column goes below its floor.
+ * Each column's choices are the widths its own cells need, so this is a small knapsack, solved
+ * exactly over the width taken, counted in thousandths of an inch (coarser only for a table far
+ * too wide). Width taken beyond the excess goes back to the column cut deepest. Returns what could
+ * not be taken.
  */
 function shave(widths: number[], needs: Array<Need[] | null>, floors: number[], excess: number): number {
-  const steps = needs.map((list, i) => {
-    if (!list) return []
+  if (excess <= 1e-9) return Math.max(0, excess)
+  const unit = Math.max(0.001, excess / 3000)
+
+  // Each column's options: stay, or narrow to one of its cells' widths or to its floor, costing the
+  // cells that need more. Of several widths in one unit, the widest and cheapest stands for them.
+  const options = needs.map((list, i) => {
+    const out = [{ to: widths[i], take: 0, cost: 0 }]
+    if (!list) return out
     const weightAt = new Map<number, number>()
     for (const [need, weight] of list) {
       if (need > floors[i] && need <= widths[i]) weightAt.set(need, (weightAt.get(need) ?? 0) + weight)
     }
     const values = [...weightAt.keys()].sort((a, b) => b - a)
-    // Going below a width costs the cells that need it; the step stops at the next width down.
-    return values.map((value, k) => ({ to: k + 1 < values.length ? values[k + 1] : floors[i], cost: weightAt.get(value) ?? 0 }))
-  })
-  const at = steps.map(() => 0)
-
-  while (excess > 1e-9) {
-    let best = -1
-    let bestRate = Infinity
-    steps.forEach((list, i) => {
-      const step = list[at[i]]
-      if (!step) return
-      const rate = step.cost / Math.min(widths[i] - step.to, excess)
-      if (rate < bestRate) {
-        bestRate = rate
-        best = i
-      }
+    let cost = 0
+    values.forEach((value, k) => {
+      cost += weightAt.get(value) ?? 0
+      const to = k + 1 < values.length ? values[k + 1] : floors[i]
+      const take = Math.floor((widths[i] - to) / unit + 1e-9)
+      if (take > out[out.length - 1].take) out.push({ to, take, cost })
     })
-    if (best < 0) break
-    const step = steps[best][at[best]]
-    const freed = widths[best] - step.to
-    if (freed <= excess) {
-      widths[best] = step.to
-      excess -= freed
-      at[best]++
-    } else {
-      widths[best] -= excess
-      excess = 0
-    }
+    return out
+  })
+
+  const start = widths.slice()
+  const target = Math.ceil(excess / unit - 1e-9)
+  if (sum(options.map((o) => o[o.length - 1].take)) < target) {
+    // Not enough even with every column at its floor: take all there is.
+    options.forEach((o, i) => {
+      widths[i] = o[o.length - 1].to
+    })
+    return Math.max(0, excess - (sum(start) - sum(widths)))
   }
-  return excess
+
+  // least[t]: the lowest cost of taking at least t units from the columns seen so far.
+  let least = new Float64Array(target + 1).fill(Infinity)
+  least[0] = 0
+  const picks: Uint16Array[] = []
+  for (const opts of options) {
+    const next = new Float64Array(target + 1).fill(Infinity)
+    const pick = new Uint16Array(target + 1)
+    for (let t = 0; t <= target; t++) {
+      for (let k = 0; k < opts.length; k++) {
+        const cost = least[Math.max(0, t - opts[k].take)] + opts[k].cost
+        if (cost < next[t]) {
+          next[t] = cost
+          pick[t] = k
+        }
+      }
+    }
+    least = next
+    picks.push(pick)
+  }
+
+  let t = target
+  for (let i = options.length - 1; i >= 0; i--) {
+    const option = options[i][picks[i][t]]
+    widths[i] = option.to
+    t = Math.max(0, t - option.take)
+  }
+  let surplus = sum(start) - sum(widths) - excess
+  const deepest = widths.map((_, i) => i).sort((a, b) => start[b] - widths[b] - (start[a] - widths[a]))
+  for (const i of deepest) {
+    if (surplus <= 1e-12) break
+    const back = Math.min(surplus, start[i] - widths[i])
+    widths[i] += back
+    surplus -= back
+  }
+  return 0
 }
 
 /**
  * Widths for a table too wide to keep every short column on one line, even at the smallest size.
  *
  * Width comes out of the short columns first, which then wrap between words, and only after that
- * out of the longest words, which break. Each step goes where it touches the fewest cells, so one
- * long name breaks before every comp ID does. A header counts once for each slide it repeats on
- * when it wraps, and more than a whole column of cells when a word in it would break. No column
- * goes narrower than one wide character and its margins.
+ * out of the longest words, which break. Each pass takes it where it touches the fewest cells, so
+ * a long name breaks before a comp ID or a figure does. A header counts once for each slide it
+ * repeats on when it wraps, and more than a whole column of cells when a word in it would break.
+ * No column goes narrower than one wide character and its margins.
  */
-function relaxColumns(header: string[], cells: string[][], fontSize: number): number[] {
+function relaxColumns(header: string[], cells: string[][], numeric: boolean[], fontSize: number): number[] {
   const pad = CELL_MARGIN_X * 2
   const least = pad + inches(WIDEST_EM, fontSize)
   const width = (ems: number) => inches(ems, fontSize) + pad
@@ -242,11 +276,13 @@ function relaxColumns(header: string[], cells: string[][], fontSize: number): nu
     const word: Need[] = [[width(longestWordEms(h) * BOLD_FACTOR), headerBreaks]]
     let natural = line[0][0]
     let minimum = word[0][0]
+    // A figure counts a shade more than a word, so where the cost is even a name gives way first.
+    const weight = numeric[i] ? 1.01 : 1
     for (const row of cells) {
       const l = width(emsOf(row[i]))
       const w = width(longestWordEms(row[i]))
-      line.push([l, 1])
-      word.push([w, 1])
+      line.push([l, weight])
+      word.push([w, weight])
       natural = Math.max(natural, l)
       minimum = Math.max(minimum, w)
     }
@@ -294,7 +330,7 @@ export function layoutPptxTable(table: ExportTable): PptxTableLayout {
     let colW = fitColumns(naturalEms, minimumEms, fontSize)
     if (!colW) {
       if (fontSize !== smallest) continue
-      colW = relaxColumns(header, cells, fontSize)
+      colW = relaxColumns(header, cells, table.columns.map((c) => !!c.numeric), fontSize)
     }
 
     const headHeight = rowHeight(Math.max(...header.map((h, i) => linesIn(h, colW[i], fontSize, true))), fontSize)

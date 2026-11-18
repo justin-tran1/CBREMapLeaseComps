@@ -10,7 +10,10 @@
  */
 const DRAWABLE = /^[ -~ -ÿŒœˆ˜–—‘-‚“-„†-•…‰‹›€™]$/
 
-const LOOKALIKE: Record<string, string> = { 'Ł': 'L', 'ł': 'l', 'Đ': 'D', 'đ': 'd', 'Ħ': 'H', 'ħ': 'h', '−': '-', '‐': '-', '′': "'", '″': '"' }
+const LOOKALIKE: Record<string, string> = {
+  'Ł': 'L', 'ł': 'l', 'Đ': 'D', 'đ': 'd', 'Ħ': 'H', 'ħ': 'h',
+  '−': '-', '‐': '-', '‑': '-', '‒': '-', '′': "'", '″': '"',
+}
 
 export function pdfSafe(text: string): string {
   let out = ''

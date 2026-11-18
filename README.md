@@ -182,7 +182,7 @@ other concessions sit at the foot of the card, and the Comp ID is in the footer.
 A deal the export marks confidential carries a red flag in the popup header and a column in
 the table. Any value in the Confidentiality column counts, "Yes", "Confidential", "Restricted",
 an "X" or a reason, except a blank and the values that say otherwise: "No", "Public",
-"Unrestricted", "Non-Confidential", "Not confidential".
+"Unrestricted", and "Non-Confidential" or "Not confidential" however the two words are joined.
 
 **Basemaps.** Seven options in the layer switcher: aerial (the default), aerial with
 labels, light, streets, light gray canvas, topographic, and dark. Buildings extrude over
@@ -305,7 +305,8 @@ Then pick a format:
   columns: the largest type at which no word breaks and every short column keeps one line,
   down to 7 pt, split across slides by height so a row that wraps never pushes the table into
   the footer. A table still too wide at 7 pt wraps its short columns between words, then breaks
-  its longest words where that touches the fewest cells, so comp IDs and headers stay whole. A
+  its longest words where that touches the fewest cells, a figure only when nothing else will do,
+  so comp IDs and headers stay whole. A
   value too long for any slide, such as a long escalation schedule, is cut at an ellipsis; the
   PDF and the CSV carry it in full. Each slide's notes carry the source and the filters.
 
@@ -379,11 +380,11 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 529 assertions
+npm run test:units               # terminal 2, 550 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 149 end-to-end checks
+npm run test:e2e                 # terminal 2, 151 end-to-end checks
 BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone
@@ -407,7 +408,8 @@ is published on `window.__cbreMap` for exactly that purpose and nowhere else. `t
 interface from upload through the dashboard, including a click on a 3D building, using a
 synthetic vector tile generated in the test. It downloads real exports and opens them: the
 PDF's page count against the dialog's estimate and its text for the parts chosen, the deck's
-slides and native charts, and the dialog's focus and keyboard handling. `tests/standalone.mjs` opens the single-file build straight off
+slides and native charts, the dialog's focus and keyboard handling, and the column mapper's
+preview of a confidentiality flag. `tests/standalone.mjs` opens the single-file build straight off
 disk, which is where the browser rules on workers and origins bite hardest, and exports a
 PDF and a deck from it. No test contacts an external service.
 

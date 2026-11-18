@@ -1192,6 +1192,20 @@ const results = await page.evaluate(async () => {
         fullEscalation.startsWith(longLayout.cells[0][escalation].slice(0, -1).trimEnd()))
     truthy('deck table: other cells are untouched', longLayout.cells[1].every((cell, i) => cell === longTable.columns[i].render(longRows[1])))
 
+    // Breaking words: the narrowing takes width where the fewest cells break, and a figure gives
+    // way last. Two long tenant names: their words break, not "105,000 SF".
+    const renamedTenants = full.table.rows.map((d) =>
+      d.compId === 'CMP-481061' ? { ...d, lessee: 'Atlanta Gastroenterology Associates' }
+        : d.compId === 'CMP-480510' ? { ...d, lessee: 'Sutro Pharmaceuticals' } : d)
+    const tenantTable = { ...full.table, rows: renamedTenants.slice(0, 25), columns: tableColumns.TABLE_COLUMNS }
+    const tenantLayout = checkLayout('deck table, two long tenant names, every column', tenantTable)
+    const tenantBroken = brokenIn(tenantTable, tenantLayout)
+    eq('deck table: no figure breaks while a name can',
+      tenantBroken.filter((w) => /^(area|baseRent|opex|ti|term|freeRent):/.test(w)), [])
+    const brokenCells = new Set(tenantLayout.cells.flatMap((row, r) => row.map((cell, i) =>
+      cell.split(/\s+/).some((word) => pptxPlan.linesIn(word, tenantLayout.colW[i], tenantLayout.fontSize) > 1) ? `${r}:${i}` : null)).filter(Boolean))
+    truthy('deck table: as few cells break as can', brokenCells.size <= 4, `${brokenCells.size}: ${tenantBroken.join(', ')}`)
+
     // Text from a spreadsheet: control characters that would make a deck corrupt are dropped.
     eq('clean text: a stray control character goes', coerce.toText('Ventas\u0001'), 'Ventas')
     eq("clean text: Word's non-breaking hyphen reads as a hyphen", coerce.toText('Ventas\u001ELillibridge'), 'Ventas-Lillibridge')
@@ -1226,6 +1240,12 @@ const results = await page.evaluate(async () => {
     eq('confidentiality: "Confidential" survives as the flag', confDeals[0].confidentiality, 'Confidential')
     eq('confidentiality: an X reads as confidential', normalize.confidentialityLabel(confDeals[6]), 'Confidential')
     eq('confidentiality: a reason is kept as the label', normalize.confidentialityLabel(confDeals[3]), 'Restricted')
+    eq('confidentiality: "Non-Confidential" however the words are joined',
+      ['Non - Confidential', 'Non‑Confidential', 'Not–Confidential', 'NONCONFIDENTIAL', 'non confidential', 'Not  restricted']
+        .filter((v) => normalize.isConfidential({ confidentiality: v })), [])
+    eq('confidentiality: a qualified flag still counts', normalize.isConfidential({ confidentiality: 'Confidential - client request' }), true)
+    eq('confidentiality: the mapper reads the flag word', [normalize.confidentialityText(' Confidential '), normalize.confidentialityText('N/A')], ['Confidential', ''])
+    eq('pdf text: a non-breaking hyphen prints as a hyphen', exportText.pdfSafe('Non‑Confidential'), 'Non-Confidential')
 
     // Wording.
     eq('sort wording: keeps an acronym', tableColumns.describeSort({ key: 'compId', direction: 'asc' }), 'comp ID (ascending)')
@@ -1274,6 +1294,64 @@ const results = await page.evaluate(async () => {
     }
     for (const [label, input] of Object.entries(pdfCases)) {
       eq(`pdf estimate: matches the file, ${label}`, exportIndex.estimateExport(input).length, await pdfPages(input))
+    }
+
+    // A row taller than a page: the table library splits it by whole lines, each piece carrying
+    // the cell padding again. A rent schedule in the escalation comments makes one.
+    const rentSchedule = (years) => {
+      const parts = ['Fixed rent schedule as follows.']
+      for (let y = 1; y <= years; y++) {
+        parts.push(`Lease year ${y}: annual base rent of $${(38.5 * 1.03 ** (y - 1)).toFixed(2)} per RSF triple net, payable monthly in advance.`)
+      }
+      return parts.join(' ')
+    }
+    const withSchedule = (compId, years) => {
+      const swap = (d) => (d.compId === compId ? { ...d, escalationComments: rentSchedule(years) } : d)
+      return { ...all, deals: all.deals.map(swap), filtered: all.filtered.map(swap) }
+    }
+    const tableOnly = { ...defaults, sections: Object.fromEntries(Object.keys(defaults.sections).map((k) => [k, k === 'table'])) }
+    const everyColumn = tableColumns.TABLE_COLUMNS.map((c) => c.key)
+    for (const years of [15, 16, 17]) {
+      const tall = exportInput.buildExportInput(withSchedule('CMP-480741', years), { ...tableOnly, tableColumns: everyColumn }, at)
+      const tallest = Math.max(...pdfLayout.pdfTableRows(tall.table).body)
+      truthy(`pdf estimate: the ${years}-year schedule makes a row taller than a page`, tallest > pdfLayout.CONTENT_BOTTOM - pdfLayout.CONTENT_TOP, `${tallest}`)
+      eq(`pdf estimate: matches the file, a ${years}-year schedule split across pages`, exportIndex.estimateExport(tall).length, await pdfPages(tall))
+    }
+    const tallFull = exportInput.buildExportInput(withSchedule('CMP-480741', 21), { ...defaults, tableColumns: everyColumn }, at)
+    eq('pdf estimate: matches the file, the full report with a split row', exportIndex.estimateExport(tallFull).length, await pdfPages(tallFull))
+
+    // A first row too tall to sit under the table heading on any page, but not tall enough for the
+    // library to split, moves to a page of its own; the heading does not take one too.
+    const everyInput = exportInput.buildExportInput(all, { ...defaults, tableColumns: everyColumn }, at)
+    const firstRowOf = (lines) => {
+      const words = 'Atlanta Gastroenterology Associates Regional Partners'.split(' ')
+      const first = everyInput.table.rows[0]
+      let name = ''
+      for (let k = 0; k < 4000; k++) {
+        const next = `${name} ${words[k % words.length]}`.trim()
+        const height = pdfLayout.pdfTableRows({ ...everyInput.table, rows: [{ ...first, lessee: next }] }).body[0]
+        const n = Math.round((height - 2 * pdfLayout.TABLE_PADDING) / (pdfLayout.TABLE_FONT * 1.15))
+        if (n > lines) return null
+        if (n === lines) {
+          const swap = (d) => (d.compId === first.compId ? { ...d, lessee: next } : d)
+          return exportInput.buildExportInput({ ...all, deals: all.deals.map(swap), filtered: all.filtered.map(swap) },
+            { ...defaults, tableColumns: everyColumn }, at)
+        }
+        name = next
+      }
+      return null
+    }
+    // 51 lines: the row fits under the heading on a fresh page, so the heading moves with it.
+    // 53 lines: it cannot, and is not split, so the heading stays put under field coverage.
+    for (const [lines, after] of [[51, 1], [53, 0]]) {
+      const input = firstRowOf(lines)
+      truthy(`pdf plan: a first row of ${lines} lines can be built`, !!input)
+      if (!input) continue
+      const plan = pdfLayout.planPdf(input, pdfLayout.metricMeasure)
+      const pageOfKind = (kind) => plan.pages.findIndex((blocks) => blocks.some((b) => b.kind === kind))
+      eq(`pdf plan: a first row of ${lines} lines puts the table heading ${after ? 'on the next page, with it' : 'under field coverage'}`,
+        pageOfKind('tableHead') - pageOfKind('coverage'), after)
+      eq(`pdf estimate: matches the file, a first row of ${lines} lines`, exportIndex.estimateExport(input).length, await pdfPages(input))
     }
 
     // A deck built from a dirty sheet, for the XML check below.

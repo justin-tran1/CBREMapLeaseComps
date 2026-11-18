@@ -242,7 +242,7 @@ export function resolveEscalation(deal: LeaseDeal): string {
  * The confidentiality cell as text. Every other field reads "Confidential" or "Undisclosed" as a
  * withheld value and keeps a blank; in this one the word is the flag itself, so it stays.
  */
-function confidentialityText(value: unknown): string {
+export function confidentialityText(value: unknown): string {
   if (typeof value === 'string') {
     const text = cleanText(value)
     if (/^(confidential|undisclosed|not disclosed)$/i.test(text)) return text
@@ -250,8 +250,11 @@ function confidentialityText(value: unknown): string {
   return toText(value)
 }
 
-/** Values that say a deal is not confidential. "Non-Confidential" contains the word, so it is listed. */
-const NOT_CONFIDENTIAL = /^(no|n|none|false|0|public|unrestricted|not restricted|non[- ]?confidential|not[- ]confidential)$/i
+/**
+ * Values that say a deal is not confidential. "Non-Confidential" contains the word, so it is
+ * listed, written however the sheet joins the two words: a hyphen, a dash, spaces or nothing.
+ */
+const NOT_CONFIDENTIAL = /^(no|n|none|false|0|public|unrestricted|not[\s\u2010-\u2015-]*restricted|no[nt][\s\u2010-\u2015-]*confidential)$/i
 
 /**
  * How the sheet marks a deal confidential, or '' when it does not.

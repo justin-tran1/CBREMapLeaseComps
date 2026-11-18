@@ -203,7 +203,7 @@ export function ExportDialog() {
   const tableRowsAvailable = filtered.length - (prefs.omitConfidential ? confidentialCount : 0)
   // Leaving out confidential deals can leave the table nothing to list. The box that did it stays
   // live while ticked, so it can always be unticked.
-  const emptiedByOmit = prefs.sections.table && prefs.omitConfidential && filtered.length > 0 && tableRowsAvailable === 0
+  const emptiedByOmit = prefs.omitConfidential && filtered.length > 0 && tableRowsAvailable === 0
 
   let lengthText = ''
   if (estimate) {

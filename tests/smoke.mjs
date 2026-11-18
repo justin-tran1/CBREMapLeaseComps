@@ -849,7 +849,14 @@ check(
   'the dialog says how to list them',
   await exportDialog.getByText('Untick "Leave out confidential deals" to list them.', { exact: false }).isVisible(),
 )
+// The Data group's None unticks the table part too; the hint still names the box to untick.
+await exportDialog.getByRole('button', { name: 'Leave out every data part' }).click()
+check(
+  'with the table part off as well, the hint still names the box',
+  await exportDialog.getByText('Untick "Leave out confidential deals" to list them.', { exact: false }).isVisible(),
+)
 await omitBox.uncheck()
+await tablePart.check()
 check('unticking it brings the table back', (await tablePart.isEnabled()) && (await tablePart.isChecked()))
 await page.keyboard.press('Escape')
 await scottsdale.uncheck()
@@ -894,6 +901,25 @@ check('dashboard survives the theme swap', (await page.locator('.chart .recharts
 await page.getByRole('tab', { name: 'Map' }).click()
 await page.waitForTimeout(1200)
 check('map still mounted after a tab round trip', (await page.locator('.pin-wrap').count()) === 32)
+
+// --------------------------------------------- 13b. the mapper reads a flag word
+// Every other field reads "Confidential" as a withheld value; the confidentiality preview must
+// show it, since the import counts it as the flag.
+await page.getByRole('button', { name: 'Upload a different spreadsheet' }).click()
+await page.locator('input[type=file]').setInputFiles({
+  name: 'flags.csv',
+  mimeType: 'text/csv',
+  buffer: Buffer.from(
+    'Comp ID,Confidentiality,Address,City,State\nF1,Confidential,1 Main St,Boston,MA\nF2,No,2 Main St,Boston,MA\n',
+  ),
+})
+const confidentialityRow = page.locator('.mapper__row', { has: page.locator('#map-confidentiality') })
+await confidentialityRow.waitFor()
+check(
+  'the mapper previews the confidentiality flag word',
+  (await confidentialityRow.locator('.mapper__preview').first().innerText()).includes('Confidential · No'),
+  await confidentialityRow.locator('.mapper__preview').first().innerText(),
+)
 
 // --------------------------------------------------------------- 14. errors
 const realErrors = errors.filter(
