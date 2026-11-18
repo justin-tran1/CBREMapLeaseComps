@@ -8,7 +8,15 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import {
+  DEFAULT_CHART_PREFS,
+  isDefaultChartPrefs,
+  readStoredChartPrefs,
+  writeStoredChartPrefs,
+  type ChartPrefs,
+} from '../lib/chartPrefs'
 import { autoMapColumns } from '../lib/fields'
+import { DEFAULT_TABLE_SORT, type TableSort } from '../lib/tableColumns'
 import { applyFilters, computeBounds, computeFacets, emptyFilters } from '../lib/filters'
 import {
   cacheSize,
@@ -97,6 +105,20 @@ interface AppState {
 
   focusRequest: FocusRequest | null
 
+  /** How the dashboard charts are drawn. Shared with the export, which draws them again. */
+  chartPrefs: ChartPrefs
+  chartPrefsDefault: boolean
+  setChartPref: <K extends keyof ChartPrefs>(key: K, value: ChartPrefs[K]) => void
+  resetChartPrefs: () => void
+
+  /** The deal table's order. The export follows it, so a report reads the way the table did. */
+  tableSort: TableSort
+  setTableSort: (sort: TableSort) => void
+
+  /** Whether the dashboard export dialog is showing. */
+  exportOpen: boolean
+  setExportOpen: (open: boolean) => void
+
   setTab: (tab: TabId) => void
   setTheme: (theme: ThemeId) => void
   setBasemap: (basemap: BasemapId) => void
@@ -158,6 +180,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [geocode, setGeocode] = useState<GeocodeProgress>(IDLE_PROGRESS)
   const [geocodeCacheSize, setGeocodeCacheSize] = useState(0)
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
+  const [chartPrefs, setChartPrefs] = useState<ChartPrefs>(readStoredChartPrefs)
+  const [tableSort, setTableSort] = useState<TableSort>(DEFAULT_TABLE_SORT)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const focusToken = useRef(0)
@@ -181,6 +206,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setBasemap = useCallback((next: BasemapId) => {
     setBasemapState(next)
     writeStored(BASEMAP_KEY, next)
+  }, [])
+
+  const setChartPref = useCallback(<K extends keyof ChartPrefs>(key: K, value: ChartPrefs[K]) => {
+    setChartPrefs((prev) => {
+      const next = { ...prev, [key]: value }
+      writeStoredChartPrefs(next)
+      return next
+    })
+  }, [])
+
+  const resetChartPrefs = useCallback(() => {
+    setChartPrefs(DEFAULT_CHART_PREFS)
+    writeStoredChartPrefs(DEFAULT_CHART_PREFS)
   }, [])
 
   const setGeocodeProvider = useCallback((next: GeocodeProviderId) => {
@@ -284,6 +322,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setGeocode(IDLE_PROGRESS)
     setParseError('')
     setFocusRequest(null)
+    setTableSort(DEFAULT_TABLE_SORT)
+    setExportOpen(false)
   }, [cancelGeocoding])
 
   const startGeocoding = useCallback(
@@ -462,6 +502,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       googleKey,
       mapEngine,
       focusRequest,
+      chartPrefs,
+      chartPrefsDefault: isDefaultChartPrefs(chartPrefs),
+      setChartPref,
+      resetChartPrefs,
+      tableSort,
+      setTableSort,
+      exportOpen,
+      setExportOpen,
       setTab,
       setTheme,
       setBasemap,
@@ -485,7 +533,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [
       phase, tab, theme, basemap, sheet, columnMap, parseError, loadingFile, deals, filtered,
       sites, filteredSites, facets, bounds, filters, geocodeProvider, geocode, geocodeCacheSize,
-      unlocatedCount, buildingGradeCount, googleKey, mapEngine, focusRequest, setTheme,
+      unlocatedCount, buildingGradeCount, googleKey, mapEngine, focusRequest, chartPrefs,
+      setChartPref, resetChartPrefs, tableSort, exportOpen, setTheme,
       setBasemap, setGoogleKey, setMapEngine, setFilters, resetFilters, loadFile,
       changeSheet, setColumnMap, confirmMapping, reopenMapping, reset, setGeocodeProvider,
       startGeocoding, cancelGeocoding, purgeGeocodeCache, requestFocus, clearFocus,

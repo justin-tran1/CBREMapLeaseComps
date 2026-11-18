@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './state/AppContext'
 import { ColumnMapper } from './components/ColumnMapper'
 import { DashboardTab } from './components/DashboardTab'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ExportDialog } from './components/ExportDialog'
 import { FilterRail } from './components/FilterRail'
 import { GeocodeBar } from './components/GeocodeBar'
 import { GoogleMap3D } from './components/GoogleMap3D'
@@ -11,7 +12,7 @@ import { TopBar } from './components/TopBar'
 import { UploadScreen } from './components/UploadScreen'
 
 function Shell() {
-  const { phase, tab, mapEngine } = useApp()
+  const { phase, tab, mapEngine, exportOpen } = useApp()
   const [railOpen, setRailOpen] = useState(true)
   const google3d = mapEngine === 'google3d'
 
@@ -58,6 +59,13 @@ function Shell() {
           </>
         )}
       </div>
+
+      {/* Over either tab: the export builds its charts off screen, so the dashboard need not be showing. */}
+      {phase === 'ready' && exportOpen && (
+        <ErrorBoundary>
+          <ExportDialog />
+        </ErrorBoundary>
+      )}
     </div>
   )
 }

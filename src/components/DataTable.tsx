@@ -1,146 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../state/AppContext'
 import { dealsToCsv, downloadCsv, timestampedName } from '../lib/exportCsv'
-import { fmtArea, fmtDate, fmtRent, fmtShortMonths, fmtText, EMPTY } from '../lib/format'
-import { resolveEscalation } from '../lib/normalize'
+import { describeSort, initialDirection, sortDeals, TABLE_COLUMNS as COLUMNS } from '../lib/tableColumns'
 import { IconDownload, IconPin } from './Icons'
-import type { LeaseDeal } from '../types'
-
-type SortDirection = 'asc' | 'desc'
-
-interface Column {
-  key: string
-  label: string
-  numeric?: boolean
-  render: (deal: LeaseDeal) => string
-  sortValue: (deal: LeaseDeal) => string | number | null
-}
-
-const COLUMNS: Column[] = [
-  { key: 'compId', label: 'Comp ID', render: (d) => fmtText(d.compId), sortValue: (d) => d.compId.toLowerCase() },
-  {
-    key: 'confidentiality',
-    label: 'Conf.',
-    render: (d) => fmtText(d.confidentiality),
-    sortValue: (d) => d.confidentiality.toLowerCase(),
-  },
-  {
-    key: 'property',
-    label: 'Property',
-    render: (d) => fmtText(d.propertyName || d.address),
-    sortValue: (d) => (d.propertyName || d.address).toLowerCase(),
-  },
-  { key: 'address', label: 'Address', render: (d) => fmtText(d.address), sortValue: (d) => d.address.toLowerCase() },
-  { key: 'city', label: 'City', render: (d) => fmtText(d.city), sortValue: (d) => d.city.toLowerCase() },
-  { key: 'state', label: 'State', render: (d) => fmtText(d.state), sortValue: (d) => d.state.toLowerCase() },
-  {
-    key: 'leaseDate',
-    label: 'Lease date',
-    render: (d) => fmtDate(d.leaseDate),
-    sortValue: (d) => d.leaseDate?.getTime() ?? null,
-  },
-  {
-    key: 'term',
-    label: 'Term',
-    numeric: true,
-    render: (d) => fmtShortMonths(d.termMonths),
-    sortValue: (d) => d.termMonths,
-  },
-  {
-    key: 'executionDate',
-    label: 'Signed',
-    render: (d) => fmtDate(d.executionDate),
-    sortValue: (d) => d.executionDate?.getTime() ?? null,
-  },
-  { key: 'leaseType', label: 'Lease type', render: (d) => fmtText(d.leaseType), sortValue: (d) => d.leaseType.toLowerCase() },
-  {
-    key: 'subtype',
-    label: 'Subtype',
-    render: (d) => fmtText(d.propertySubtype),
-    sortValue: (d) => d.propertySubtype.toLowerCase(),
-  },
-  { key: 'floor', label: 'Floor', render: (d) => fmtText(d.floor), sortValue: (d) => d.floor.toLowerCase() },
-  { key: 'suite', label: 'Suite', render: (d) => fmtText(d.suite), sortValue: (d) => d.suite.toLowerCase() },
-  {
-    key: 'area',
-    label: 'Area leased',
-    numeric: true,
-    render: (d) => fmtArea(d.areaLeased),
-    sortValue: (d) => d.areaLeased,
-  },
-  {
-    key: 'baseRent',
-    label: 'Base rent',
-    numeric: true,
-    render: (d) => fmtRent(d.baseRent, d.rateType),
-    // Sorting compares annualised rates so a monthly quote does not sink to the bottom.
-    sortValue: (d) => d.baseRentAnnual,
-  },
-  {
-    key: 'opex',
-    label: 'OpEx',
-    numeric: true,
-    render: (d) => fmtRent(d.opex, d.rateType),
-    sortValue: (d) => d.opexAnnual,
-  },
-  {
-    key: 'escalation',
-    label: 'Escalation',
-    render: (d) => fmtText(resolveEscalation(d)),
-    sortValue: (d) => resolveEscalation(d).toLowerCase(),
-  },
-  {
-    key: 'freeRent',
-    label: 'Free rent',
-    numeric: true,
-    render: (d) => (d.freeRent === null ? EMPTY : fmtShortMonths(d.freeRent)),
-    sortValue: (d) => d.freeRent,
-  },
-  {
-    key: 'ti',
-    label: 'TI allowance',
-    numeric: true,
-    render: (d) => (d.tiAllowance === null ? EMPTY : fmtRent(d.tiAllowance, 'annual').replace('/SF/Yr', '/SF')),
-    sortValue: (d) => d.tiAllowance,
-  },
-  { key: 'lessor', label: 'Lessor', render: (d) => fmtText(d.lessor), sortValue: (d) => d.lessor.toLowerCase() },
-  { key: 'lessee', label: 'Lessee', render: (d) => fmtText(d.lessee), sortValue: (d) => d.lessee.toLowerCase() },
-  {
-    key: 'submarket',
-    label: 'Submarket',
-    render: (d) => fmtText(d.submarket),
-    sortValue: (d) => d.submarket.toLowerCase(),
-  },
-]
 
 const PAGE_SIZES = [50, 100, 250, 1000]
 
 export function DataTable() {
-  const { filtered, requestFocus } = useApp()
-  const [sortKey, setSortKey] = useState('leaseDate')
-  const [direction, setDirection] = useState<SortDirection>('desc')
+  const { filtered, requestFocus, tableSort, setTableSort } = useApp()
+  const { key: sortKey, direction } = tableSort
   const [pageSize, setPageSize] = useState(50)
   const [page, setPage] = useState(0)
 
-  const sorted = useMemo(() => {
-    const column = COLUMNS.find((c) => c.key === sortKey) ?? COLUMNS[0]
-    const factor = direction === 'asc' ? 1 : -1
-
-    return [...filtered].sort((a, b) => {
-      const av = column.sortValue(a)
-      const bv = column.sortValue(b)
-
-      // Blanks always sink to the bottom, whichever way the column is sorted.
-      const aEmpty = av === null || av === '' || av === undefined
-      const bEmpty = bv === null || bv === '' || bv === undefined
-      if (aEmpty && bEmpty) return a.sourceRow - b.sourceRow
-      if (aEmpty) return 1
-      if (bEmpty) return -1
-
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * factor
-      return String(av).localeCompare(String(bv)) * factor
-    })
-  }, [filtered, sortKey, direction])
+  const sorted = useMemo(() => sortDeals(filtered, tableSort), [filtered, tableSort])
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
   const safePage = Math.min(page, pageCount - 1)
@@ -148,10 +20,9 @@ export function DataTable() {
 
   const toggleSort = (key: string) => {
     if (key === sortKey) {
-      setDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+      setTableSort({ key, direction: direction === 'asc' ? 'desc' : 'asc' })
     } else {
-      setSortKey(key)
-      setDirection(key === 'leaseDate' || key === 'area' || key === 'baseRent' ? 'desc' : 'asc')
+      setTableSort({ key, direction: initialDirection(key) })
     }
     setPage(0)
   }
@@ -162,8 +33,7 @@ export function DataTable() {
         <div>
           <div className="card__title">All matching deals</div>
           <div className="card__subtitle">
-            {sorted.length.toLocaleString('en-US')} rows · sorted by{' '}
-            {COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase()} ({direction === 'asc' ? 'ascending' : 'descending'})
+            {sorted.length.toLocaleString('en-US')} rows · sorted by {describeSort(tableSort)}
           </div>
         </div>
         <div className="row">

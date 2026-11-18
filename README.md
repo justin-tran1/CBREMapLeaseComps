@@ -272,6 +272,49 @@ a row jumps to that deal on the map.
 Rent averages weight by area leased, so a 200,000 sq. ft. deal moves the average more than
 a 1,200 sq. ft. suite.
 
+## Exporting the dashboard
+
+The **Export** button on the dashboard opens the export, and so does **Dashboard report…**
+under the download button in the header. The CSV of the filtered rows sits in the same menu.
+
+Pick the parts to include, in four groups:
+
+| Group | Parts |
+| --- | --- |
+| Overview | Selection and filters, headline numbers |
+| Charts | The eight dashboard charts, each listed by its title |
+| Signed date | The signed date numbers and that section's two charts |
+| Data | Field coverage, the deal table |
+
+A part with nothing to show is grayed out with the reason, in the dashboard's own words: a
+chart the filters have emptied, or the signed date numbers when no matching deal carries a
+signed date. Each group has All and None.
+
+Then pick a format:
+
+- **PDF report.** US Letter, landscape. A cover with the title, the selection and the
+  source, then the parts in dashboard order, half-width charts two to a row. The deal table
+  runs onto as many pages as it needs and repeats its column headers on each one. Charts are
+  drawn as vectors, so they stay sharp zoomed in or printed. Every page carries the source
+  line and a page count, and every page after the cover repeats the title at the top.
+- **PowerPoint deck.** Widescreen, with the CBRE wordmark and colors on a title master and a
+  content master. One chart to a slide, as a native PowerPoint chart, so the numbers behind
+  it stay editable and a slide can move to another deck whole. The table is sized to its
+  columns: the largest type at which no word breaks, down to 7 pt, split across slides by
+  height so a row that wraps never pushes the table into the footer. Each slide's notes
+  carry the source and the filters.
+
+The deal table takes any of its 22 columns, 15 by default, and every row or the first 25,
+50, 100 or 250 in the table's current order. It can also leave out deals marked
+confidential. The headline numbers and charts still count those deals, and the file says so.
+
+An export follows what the dashboard shows: the filters, the chart settings and the table's
+sort. Files always use the light theme. The title defaults to "Healthcare & Life Sciences
+lease comps". Before anything is built, the dialog gives the length: the page count is an
+estimate, the slide count exact. It remembers the choices in the browser. The PDF and
+PowerPoint libraries load the first time someone exports, so the app opens no slower for
+carrying them, and both formats work offline from the standalone file.
+
 ## Filters
 
 Both tabs share one filter rail:
@@ -330,29 +373,33 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 405 assertions
+npm run test:units               # terminal 2, 471 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 117 end-to-end checks
+npm run test:e2e                 # terminal 2, 141 end-to-end checks
 BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone
-npm run test:standalone          # 9 checks against the single file, opened from disk
+npm run test:standalone          # 11 checks against the single file, opened from disk
 ```
 
 `tests/units.mjs` covers value coercion, header matching, geometry, building-footprint
 containment and choice, draw geometry, the brand palette, formatting, filtering, aggregation,
 geocoding precision grading, the Google response parser and place-id click resolution, and the
 geocoding response parsers with stubbed network calls, and it asserts all 45 columns of the
-practice's export schema land on the right field. `tests/maplayers.mjs` asks the map itself which
+practice's export schema land on the right field. It also covers the dashboard export short of
+writing files: stored choices, which parts can be exported, the table's rows and order, the
+page and slide estimates, the deck table's column fitting, and the PDF's text handling. `tests/maplayers.mjs` asks the map itself which
 footprints the sweep colored in and which boundary segments the filters admitted, which the DOM
 cannot show and which is where this has gone wrong before; it needs the dev server, where the map
 is published on `window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
 interface from upload through the dashboard, including a click on a 3D building, using a
-synthetic vector tile generated in the test. `tests/standalone.mjs` opens the single-file
-build straight off disk, which is where the browser rules on workers and origins bite
-hardest. No test contacts an external service.
+synthetic vector tile generated in the test. It downloads real exports and opens them: the
+PDF's page count against the dialog's estimate and its text for the parts chosen, the deck's
+slides and native charts. `tests/standalone.mjs` opens the single-file build straight off
+disk, which is where the browser rules on workers and origins bite hardest, and exports a
+PDF and a deck from it. No test contacts an external service.
 
 ## How it is built
 
@@ -360,6 +407,14 @@ React 19, TypeScript, and Vite. MapLibre GL draws the map, with the drawing tool
 against MapLibre directly rather than pulled in as a plugin, so Escape always cancels and
 the map's own gestures suspend only while a shape is in flight. Recharts draws the
 dashboard. SheetJS reads the workbooks.
+
+The dashboard export works from one description of each chart and measure, which the screen,
+the PDF and the deck all draw from, so the three cannot disagree. jsPDF writes the report,
+with svg2pdf.js placing Recharts' own SVG as vectors and jspdf-autotable setting the table.
+PptxGenJS writes the deck, and JSZip compresses it, which PptxGenJS does not do on its own. A
+layout planner decides every page and slide before either library loads, which is how the
+dialog can give a length up front. jsPDF's optional helpers for HTML and raster SVG are never
+called, so the build replaces them with a stub, which keeps 380 KB out of the standalone file.
 
 Building footprints and heights come from OpenStreetMap through OpenFreeMap, and aerial
 imagery from Esri. Both are free and need no key. Google is optional throughout: nothing in
@@ -465,6 +520,13 @@ substitution the brand guide itself specifies. This is a substitution, not brand
 and a webfont licence for the two Klim faces would close the gap. The two open faces are
 embedded, so the standalone file needs no font server and works offline.
 
+Exports follow the same rule. A PDF can only embed what its licence allows, so a report sets
+headings in Times and body text in Helvetica, the faces every PDF reader carries, with Barlow
+Condensed embedded for figures and the table. The PDF writer needs TrueType, so the regular
+and semibold weights ship a second time as TrueType subsets, 76 KB. A deck names Financier
+Display and Calibre, which PowerPoint uses wherever CBRE's fonts are installed and substitutes
+elsewhere.
+
 ### Roles, as the template sets them
 
 | Role | Face | Weight | Color | In the app |
@@ -568,7 +630,9 @@ because color encodes nothing when every bar measures the same thing.
 
 ## Privacy
 
-Files are read in the browser. Nothing uploads to a server. The only outbound requests are
+Files are read in the browser. Nothing uploads to a server. Dashboard exports are written in
+the browser too, from fonts and artwork bundled with the app, and go straight to the
+download folder. The only outbound requests are
 map tiles from CARTO, OpenStreetMap, and Esri, and geocoding lookups that send the address
 text only when a sheet lacks coordinates. Geocoding results cache in browser local storage
 and clear from the header bar.

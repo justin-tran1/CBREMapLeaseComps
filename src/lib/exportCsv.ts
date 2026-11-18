@@ -1,4 +1,5 @@
 import { formatDateISO } from './coerce'
+import { downloadBlob } from './download'
 import { resolveBrokers, resolveEscalation } from './normalize'
 import type { LeaseDeal } from '../types'
 
@@ -72,14 +73,7 @@ export function dealsToCsv(deals: LeaseDeal[]): string {
 export function downloadCsv(filename: string, csv: string): void {
   // The BOM keeps Excel from mangling accented characters on open.
   const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename.endsWith('.csv') ? filename : `${filename}.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadBlob(filename.endsWith('.csv') ? filename : `${filename}.csv`, blob)
 }
 
 export function timestampedName(base: string): string {

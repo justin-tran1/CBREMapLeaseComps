@@ -237,6 +237,23 @@ export function resolveEscalation(deal: LeaseDeal): string {
   return parts.join(' · ')
 }
 
+/**
+ * How the sheet marks a deal confidential, or '' when it does not.
+ *
+ * Anything other than a plain "no" is worth flagging: exports say "Yes", "Confidential",
+ * "Restricted" or a reason, and a flag that misses one of those lets a restricted comp travel.
+ */
+export function confidentialityLabel(deal: Pick<LeaseDeal, 'confidentiality'> | undefined): string {
+  const raw = (deal?.confidentiality ?? '').trim()
+  if (!raw) return ''
+  if (/^(no|none|n|false|public|not confidential|0)$/i.test(raw)) return ''
+  return /^(yes|y|true|1|confidential)$/i.test(raw) ? 'Confidential' : raw
+}
+
+export function isConfidential(deal: Pick<LeaseDeal, 'confidentiality'>): boolean {
+  return confidentialityLabel(deal) !== ''
+}
+
 /** Everyone who touched the deal, de-duplicated. */
 export function resolveBrokers(deal: LeaseDeal): string {
   const parts: string[] = []

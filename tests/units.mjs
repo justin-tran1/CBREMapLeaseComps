@@ -965,6 +965,179 @@ const results = await page.evaluate(async () => {
   eq('the tolerance is respected',
     google3d.siteForClick(clickSites, '', { lat: 42.3656, lng: -71.086 }, 0.5)?.id, 'a')
 
+  // ------------------------------------------------------- dashboard export
+  {
+    const exportPrefs = await import('/src/lib/exportPrefs.ts')
+    const exportInput = await import('/src/export/input.ts')
+    const exportIndex = await import('/src/export/index.ts')
+    const pptxPlan = await import('/src/export/pptxPlan.ts')
+    const pdfLayout = await import('/src/export/pdfLayout.ts')
+    const exportText = await import('/src/export/text.ts')
+    const tableColumns = await import('/src/lib/tableColumns.ts')
+    const model = await import('/src/lib/dashboardModel.ts')
+    const { sampleFile } = await import('/src/lib/sampleData.ts')
+    const { readSpreadsheet } = await import('/src/lib/parse.ts')
+
+    // Stored choices are read field by field.
+    const defaults = exportPrefs.defaultExportPrefs()
+    eq('export prefs: nothing stored yields the defaults', exportPrefs.parseExportPrefs(null), defaults)
+    eq('export prefs: every part is included by default', Object.values(defaults.sections).every(Boolean), true)
+    eq('export prefs: the catalogue lists all 15 parts', exportPrefs.EXPORT_SECTION_IDS.length, 15)
+    const messy = exportPrefs.parseExportPrefs({
+      format: 'docx',
+      sections: { kpis: false, table: 'yes', bogus: true },
+      title: 42,
+      tableColumns: ['lessee', 'nope', 'compId'],
+      tableRows: 33,
+      omitConfidential: 'true',
+    })
+    eq('export prefs: an unknown format falls back to PDF', messy.format, 'pdf')
+    eq('export prefs: a stored boolean is honoured', messy.sections.kpis, false)
+    eq('export prefs: a non-boolean part is ignored', messy.sections.table, true)
+    eq('export prefs: an unknown part is dropped', 'bogus' in messy.sections, false)
+    eq('export prefs: a non-string title is ignored', messy.title, '')
+    eq('export prefs: unknown columns are dropped, the rest keep table order', messy.tableColumns, ['compId', 'lessee'])
+    eq('export prefs: an unknown row limit means every row', messy.tableRows, 'all')
+    eq('export prefs: only a real true omits confidential rows', messy.omitConfidential, false)
+    eq('export prefs: PowerPoint is kept', exportPrefs.parseExportPrefs({ format: 'pptx' }).format, 'pptx')
+    eq('export prefs: a long title is capped', exportPrefs.parseExportPrefs({ title: 'x'.repeat(300) }).title.length, 120)
+    eq('export prefs: no valid column falls back to the default set',
+      exportPrefs.parseExportPrefs({ tableColumns: ['nope'] }).tableColumns, exportPrefs.DEFAULT_TABLE_COLUMNS)
+    eq('export title: blank means the default', exportPrefs.exportTitle({ title: '   ' }), exportPrefs.DEFAULT_EXPORT_TITLE)
+    eq('export title: trimmed', exportPrefs.exportTitle({ title: '  Boston lab  ' }), 'Boston lab')
+
+    // The sample, as the app loads it.
+    const sheet = await readSpreadsheet(sampleFile())
+    const sampleDeals = normalize.normalizeDeals(sheet, fields.autoMapColumns(sheet.headers))
+    const ctxFor = (f, tableSort = tableColumns.DEFAULT_TABLE_SORT) => ({
+      deals: sampleDeals,
+      filtered: filters.applyFilters(sampleDeals, f),
+      filters: f,
+      fileName: sheet.fileName,
+      tableSort,
+      chartPrefs: chartPrefs.DEFAULT_CHART_PREFS,
+    })
+    const at = new Date(2026, 10, 18, 14, 7)
+    const all = ctxFor(filters.emptyFilters())
+    const full = exportInput.buildExportInput(all, defaults, at)
+    eq('export input: every part with data is written, in dashboard order', full.sections, exportPrefs.EXPORT_SECTION_IDS)
+    eq('export input: the default title', full.title, exportPrefs.DEFAULT_EXPORT_TITLE)
+    eq('export input: no filters, nothing listed', full.filters, [])
+    eq('export input: the table carries every matching row', full.table?.rows.length, sampleDeals.length)
+    eq('export input: the table carries the default columns',
+      full.table?.columns.map((c) => c.key), exportPrefs.DEFAULT_TABLE_COLUMNS)
+    eq('export input: the sort is described', full.table?.sortLabel, 'lease date (descending)')
+    eq('export input: six headline and three signing numbers', [full.headline.length, full.signing.length], [6, 3])
+
+    const trimmed = exportInput.buildExportInput(all, {
+      ...defaults,
+      sections: { ...defaults.sections, 'chart:topLessors': false, table: false },
+    }, at)
+    eq('export input: a part left out is not written', trimmed.sections.includes('chart:topLessors'), false)
+    eq('export input: no table when the table is left out', trimmed.table, null)
+    eq('export input: the other parts are still written', trimmed.sections.length, 13)
+
+    const conf = sampleDeals.filter(normalize.isConfidential).length
+    truthy('the sample has confidential deals to omit', conf > 0)
+    const omitted = exportInput.buildExportInput(all, { ...defaults, omitConfidential: true, tableRows: 25 }, at)
+    eq('export input: confidential rows are left out of the table', omitted.table?.rows.some(normalize.isConfidential), false)
+    eq('export input: the omitted count is reported', omitted.table?.omittedConfidential, conf)
+    eq('export input: the row limit holds', omitted.table?.rows.length, 25)
+    eq('export input: rows available before the limit', omitted.table?.availableRows, sampleDeals.length - conf)
+    eq('export input: charts still count confidential deals', omitted.matching, sampleDeals.length)
+
+    const byArea = exportInput.buildExportInput(ctxFor(filters.emptyFilters(), { key: 'area', direction: 'desc' }), defaults, at)
+    const areas = byArea.table.rows.map((d) => d.areaLeased).filter((v) => v != null)
+    eq('export input: the table follows the on-screen sort', areas.every((v, i) => i === 0 || areas[i - 1] >= v), true)
+
+    // Nothing matching: every part is unavailable, and says why.
+    const none = ctxFor({ ...filters.emptyFilters(), search: 'zzzz-no-such-deal' })
+    const noneModel = model.buildDashboardModel(none.deals, none.filtered)
+    const noneStates = exportInput.sectionStates(noneModel, model.chartSpecs(noneModel), none, defaults)
+    eq('export states: nothing matching makes every part unavailable', noneStates.every((s) => !s.available), true)
+    eq('export states: and says why', noneStates[0].reason, 'No deals match the current filters.')
+    eq('export input: nothing to write when nothing matches', exportInput.buildExportInput(none, defaults, at).sections, [])
+
+    const states = exportInput.sectionStates(model.buildDashboardModel(all.deals, all.filtered), full.specs, all, defaults)
+    eq('export states: chart parts are named by their titles',
+      states.filter((s) => s.def.chartId).map((s) => s.label),
+      [...model.MAIN_CHART_IDS, ...model.SIGNED_CHART_IDS].map((id) => full.specs[id].title))
+    eq('export states: the table part counts rows and columns', states.find((s) => s.def.id === 'table').hint,
+      `${sampleDeals.length} rows, ${exportPrefs.DEFAULT_TABLE_COLUMNS.length} columns`)
+
+    // Report wording.
+    eq('report filters: a date range reads in words',
+      filters.describeFiltersForReport({ ...filters.emptyFilters(), leaseDate: { start: '2024-01-01', end: '2025-06-30' } }),
+      ['Lease date: Jan 1, 2024 to Jun 30, 2025'])
+    const manyCities = Array.from({ length: 14 }, (_, i) => `City ${String(i + 1).padStart(2, '0')}`)
+    const cityLine = filters.describeFiltersForReport({ ...filters.emptyFilters(), cities: manyCities })[0] ?? ''
+    truthy('report filters: a long list ends with a count', cityLine.endsWith('and 2 more'), cityLine)
+    eq('export file name', exportInput.exportFileName('pptx', new Date(2026, 0, 5, 9, 3)), 'cbre-hcls-dashboard-20260105-0903.pptx')
+    eq('export source line',
+      exportInput.sourceLine({ sourceFile: 'a.csv', matching: 1234, totalDeals: 5000, generatedAt: new Date(2026, 10, 18) }),
+      'Source: a.csv. 1,234 of 5,000 deals. Generated Nov 18, 2026.')
+
+    // PDF text: what the embedded fonts cannot draw is decomposed or marked, never silently lost.
+    eq('pdf text: WinAnsi passes through', exportText.pdfSafe('Café — “quotes” – x'), 'Café — “quotes” – x')
+    eq('pdf text: accents outside WinAnsi decompose', exportText.pdfSafe('Łódź'), 'Lódz')
+    eq('pdf text: ligatures decompose', exportText.pdfSafe('Ærø ﬁne ½'), 'Ærø fine ½')
+    eq('pdf text: unsupported scripts are marked', exportText.pdfSafe('北京'), '??')
+    eq('pdf text: tabs and newlines become spaces', exportText.pdfSafe('a\tb\nc'), 'a b c')
+    eq('pdf text: a minus sign becomes a hyphen', exportText.pdfSafe('−5'), '-5')
+
+    // Length estimates.
+    const pdfPlan = pdfLayout.planPdf(full, pdfLayout.approxMeasure)
+    truthy('pdf plan: the estimate covers the pages planned', pdfPlan.estimatedPages >= pdfPlan.pages.length)
+    const shorter = exportIndex.estimateExport(trimmed).length
+    truthy('pdf estimate: fewer parts, fewer pages', shorter < exportIndex.estimateExport(full).length, `${shorter}`)
+    const deckInput = { ...full, format: 'pptx' }
+    const slides = pptxPlan.planSlides(deckInput)
+    const estimate = exportIndex.estimateExport(deckInput)
+    eq('deck estimate: the exact slide count', estimate.length, slides.length)
+    eq('deck plan: a title slide and one slide per part before the table',
+      slides.filter((s) => s.kind !== 'table').length, 1 + full.sections.filter((id) => id !== 'table').length)
+    const tableSlides = slides.filter((s) => s.kind === 'table')
+    eq('deck plan: every row once, in order', tableSlides.flatMap((s) => s.rows), sampleDeals.map((_, i) => i))
+    eq('deck plan: table slides are numbered', tableSlides.map((s) => `${s.part}/${s.parts}`).at(-1),
+      `${tableSlides.length}/${tableSlides.length}`)
+    eq('deck estimate: reports the table size', estimate.tableFontSize, tableSlides[0].layout.fontSize)
+
+    // The deck's table: widths fill the slide, nothing crosses the footer, no word is broken.
+    const checkLayout = (label, table) => {
+      const layout = pptxPlan.layoutPptxTable(table)
+      const widthSum = layout.colW.reduce((a, b) => a + b, 0)
+      truthy(`${label}: columns fill the table width`, Math.abs(widthSum - pptxPlan.TABLE_WIDTH) < 1e-6, `${widthSum}`)
+      const budget = pptxPlan.TABLE_BOTTOM - pptxPlan.TABLE_TOP
+      const tallest = Math.max(
+        ...layout.slides.map((rows) => layout.headHeight + rows.reduce((sum, i) => sum + layout.rowHeights[i], 0)),
+      )
+      truthy(`${label}: every slide's table stays above the footer`, tallest <= budget + 1e-9, `${tallest} > ${budget}`)
+      return layout
+    }
+    const deckTable = checkLayout('deck table, default columns', full.table)
+    const brokenWords = []
+    full.table.rows.forEach((deal) =>
+      full.table.columns.forEach((column, i) => {
+        for (const word of column.render(deal).split(/\s+/).filter(Boolean)) {
+          if (pptxPlan.linesIn(word, deckTable.colW[i], deckTable.fontSize) > 1) brokenWords.push(word)
+        }
+      }),
+    )
+    eq('deck table: no word is broken across lines', brokenWords.slice(0, 5), [])
+    const wrappedIds = full.table.rows.filter((deal) => pptxPlan.linesIn(deal.compId, deckTable.colW[0], deckTable.fontSize) > 1)
+    eq('deck table: comp IDs stay on one line', wrappedIds.length, 0)
+    const headerWraps = full.table.columns.filter((c, i) => pptxPlan.linesIn(c.label, deckTable.colW[i], deckTable.fontSize, true) > 1)
+    eq('deck table: short headers stay on one line', headerWraps.map((c) => c.key).filter((k) => ['compId', 'confidentiality', 'state', 'term'].includes(k)), [])
+
+    const narrow = checkLayout('deck table, three columns', {
+      ...full.table,
+      columns: ['compId', 'city', 'area'].map((k) => tableColumns.tableColumn(k)),
+    })
+    eq('deck table: three columns set at the largest size', narrow.fontSize, 10)
+    const wide = checkLayout('deck table, every column', { ...full.table, columns: tableColumns.TABLE_COLUMNS })
+    truthy('deck table: every column steps the type down', wide.fontSize < narrow.fontSize, `${wide.fontSize}`)
+  }
+
   window.fetch = realFetch
   geocode.clearGeocodeCache()
 

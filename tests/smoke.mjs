@@ -15,6 +15,9 @@
 import { chromium } from 'playwright'
 import geojsonvt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
+import JSZip from 'jszip'
+import { readFileSync } from 'node:fs'
+import { inflateSync } from 'node:zlib'
 
 // Points at the preview server by default. Set BASE_URL to run the same suite against a
 // build hosted somewhere else, such as under the project subpath GitHub Pages serves.
@@ -675,6 +678,130 @@ await page.waitForTimeout(600)
 check('settings reset restores the brand palette', (await seriesFill()) === beforePalette, await seriesFill())
 await page.keyboard.press('Escape')
 await page.waitForTimeout(300)
+
+// --------------------------------------------- 11d. exporting the dashboard
+/**
+ * A PDF's page count and the text set in its standard fonts, read without a PDF tool. Chart
+ * titles and headings use the standard fonts, where text sits in the content streams as plain
+ * strings. Lines are joined with spaces, so a phrase that wrapped still reads as one.
+ */
+function pdfFacts(buffer) {
+  const bin = buffer.toString('latin1')
+  let content = ''
+  for (const m of bin.matchAll(/stream\r?\n/g)) {
+    const start = m.index + m[0].length
+    try {
+      content += inflateSync(buffer.subarray(start, bin.indexOf('endstream', start))).toString('latin1')
+    } catch {
+      // A stream that is not deflated text: an image or a font.
+    }
+  }
+  return {
+    pages: Number(/\/Type \/Pages[\s\S]*?\/Count (\d+)/.exec(bin)?.[1] ?? 0),
+    text: [...content.matchAll(/\((.*?)\)\s*Tj/g)].map((m) => m[1]).join(' '),
+  }
+}
+
+async function downloadFrom(trigger) {
+  const [download] = await Promise.all([page.waitForEvent('download'), trigger.click()])
+  return { name: download.suggestedFilename(), body: readFileSync(await download.path()) }
+}
+
+const exportDialog = page.getByRole('dialog', { name: 'Export dashboard' })
+const exportButton = page.locator('.dash__head').getByRole('button', { name: 'Export' })
+await exportButton.click()
+await exportDialog.waitFor()
+check('the export dialog opens from the dashboard', await exportDialog.isVisible())
+const partCount = await exportDialog.locator('.xdlg__count').innerText()
+check('every part is offered and included', partCount === '15 of 15 parts', partCount)
+// The estimate is worked out a moment after each change; read it once it has settled.
+const settledEstimate = async () => {
+  await exportDialog.locator('.xdlg__estimate:not([data-stale])').waitFor()
+  return exportDialog.locator('.xdlg__length').innerText()
+}
+const pdfEstimate = Number(/About (\d+) pages?/.exec(await settledEstimate())?.[1])
+const fullPdf = await downloadFrom(exportDialog.getByRole('button', { name: 'Download PDF' }))
+const fullFacts = pdfFacts(fullPdf.body)
+check('the PDF downloads under a dated name', /^cbre-hcls-dashboard-\d{8}-\d{4}\.pdf$/.test(fullPdf.name), fullPdf.name)
+check('the page estimate matches the file', fullFacts.pages === pdfEstimate, `${pdfEstimate} estimated, ${fullFacts.pages} written`)
+check(
+  'the PDF carries the charts',
+  ['Area leased by quarter', 'Top lessors by area leased', 'Signing to commencement'].every((t) => fullFacts.text.includes(t)),
+)
+check('the PDF carries the deal table', fullFacts.text.includes('All matching deals'))
+check('the dialog closes once the file is saved', (await exportDialog.count()) === 0)
+
+// A deck without one chart and without the table.
+await exportButton.click()
+await exportDialog.waitFor()
+await exportDialog.getByText('PowerPoint deck').click()
+await exportDialog.getByLabel('Top lessors by area leased').uncheck()
+await exportDialog.getByLabel('Deal table').uncheck()
+check('leaving parts out updates the count', (await exportDialog.locator('.xdlg__count').innerText()) === '13 of 15 parts')
+const slideEstimate = Number(/(\d+) slides?/.exec(await settledEstimate())?.[1])
+const deck = await downloadFrom(exportDialog.getByRole('button', { name: 'Download PowerPoint' }))
+const deckZip = await JSZip.loadAsync(deck.body)
+const deckFiles = Object.keys(deckZip.files)
+const slideXml = await Promise.all(
+  deckFiles.filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f)).map((f) => deckZip.file(f).async('string')),
+)
+const chartParts = deckFiles.filter((f) => /^ppt\/charts\/chart\d+\.xml$/.test(f)).length
+check('the deck downloads as .pptx', deck.name.endsWith('.pptx'), deck.name)
+check('the slide count matches the estimate', slideXml.length === slideEstimate, `${slideEstimate} estimated, ${slideXml.length} written`)
+// Nine dashboard charts and the field coverage, all as PowerPoint charts rather than pictures.
+check('the charts are native PowerPoint charts', chartParts === 10, `${chartParts} chart parts`)
+check('a part left out is not in the deck', !slideXml.some((x) => x.includes('Top lessors by area leased')))
+check('no table slides when the table is left out', !slideXml.some((x) => /<a:t>(All matching|Matching) deals/.test(x)))
+check('the deck is compressed', deck.body.length < 600_000, `${deck.body.length} bytes`)
+
+// The choices are remembered, and the top bar menu reaches the same dialog.
+await page.getByRole('button', { name: 'Download', exact: true }).click()
+await page.getByRole('menuitem', { name: /Dashboard report/ }).click()
+await exportDialog.waitFor()
+check('the top bar menu opens the export', await exportDialog.isVisible())
+check(
+  'the last choices are remembered',
+  (await exportDialog.getByLabel(/PowerPoint deck/).isChecked()) &&
+    !(await exportDialog.getByLabel('Top lessors by area leased').isChecked()),
+)
+
+// A titled PDF of the first 25 rows, without the confidential deals.
+await exportDialog.getByText('PDF report').click()
+await exportDialog.getByLabel('Deal table').check()
+await exportDialog.getByLabel('Title').fill('Kendall Square lab comps')
+await exportDialog.getByLabel('Rows', { exact: true }).selectOption('25')
+await exportDialog.getByLabel(/Leave out confidential deals/).check()
+const shortFacts = pdfFacts((await downloadFrom(exportDialog.getByRole('button', { name: 'Download PDF' }))).body)
+check('the chosen title is used', shortFacts.text.includes('Kendall Square lab comps'))
+check('the chart left out stays out', !shortFacts.text.includes('Top lessors by area leased'))
+check('a shortened table says so', shortFacts.text.includes('Matching deals') && shortFacts.text.includes('The first 25 of'))
+check('confidential deals left out are counted', /\d+ deals marked confidential left out/.test(shortFacts.text))
+const focusAfterExport = await page.evaluate(() => {
+  const el = document.activeElement
+  return { label: el?.getAttribute('aria-label') ?? '', tag: el?.tagName ?? '', text: el?.textContent?.trim().slice(0, 40) ?? '' }
+})
+check(
+  'focus returns to the menu button that opened the export',
+  focusAfterExport.label === 'Download',
+  JSON.stringify(focusAfterExport),
+)
+
+// Escape closes the dialog and hands focus back to the button that opened it.
+await exportButton.click()
+await exportDialog.waitFor()
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+check('escape closes the export dialog', (await exportDialog.count()) === 0)
+check('focus returns to the export button', (await page.evaluate(() => document.activeElement?.textContent?.trim())) === 'Export')
+
+// The CSV is still in the same menu.
+await page.getByRole('button', { name: 'Download', exact: true }).click()
+const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows/ }))
+const csvRows = csv.body.toString('utf8').trim().split(/\r?\n/).length
+check('the CSV still downloads every filtered row', csv.name.endsWith('.csv') && csvRows === 75, `${csv.name}, ${csvRows} lines`)
+
+// Leave the export choices as a first visit finds them.
+await page.evaluate(() => localStorage.removeItem('cbre-hcls-mapper.exportPrefs.v1'))
 
 await page.locator('#fsection-city .optionlist__item', { hasText: 'Houston' }).locator('input').check()
 await page.waitForTimeout(800)
