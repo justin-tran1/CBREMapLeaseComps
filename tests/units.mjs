@@ -1307,6 +1307,16 @@ const results = await page.evaluate(async () => {
     let texasBinary = ''
     for (let i = 0; i < texasBytes.length; i += 0x8000) texasBinary += String.fromCharCode(...texasBytes.subarray(i, i + 0x8000))
     window.__texasDeck = { b64: btoa(texasBinary), rows: texas.table.rows.length }
+
+    // Chart labels with letters the embedded condensed face lacks, for the PDF text check below.
+    const rename = (d) => (d.lessor === 'Ventas' ? { ...d, lessor: 'Łódź Ventas' } : d.lessor === 'Welltower' ? { ...d, lessor: '三井 Welltower' } : d)
+    const intl = exportInput.buildExportInput({ ...all, deals: all.deals.map(rename), filtered: all.filtered.map(rename) }, defaults, at)
+    eq('pdf labels: the renamed lessors are charted', intl.specs.topLessors.data.map((d) => d.name).filter((n) => /Ventas|Welltower/.test(n)).sort(),
+      ['Łódź Ventas', '三井 Welltower'])
+    const intlBytes = new Uint8Array(await (await exportIndex.writeExport(intl)).arrayBuffer())
+    let intlBinary = ''
+    for (let i = 0; i < intlBytes.length; i += 0x8000) intlBinary += String.fromCharCode(...intlBytes.subarray(i, i + 0x8000))
+    window.__intlPdf = btoa(intlBinary)
     window.fetch = stubbedFetch
     eq('dirty sheet: names come through clean', dirtyDeals.map((d) => [d.propertyName, d.lessee]), [
       ['Gateway of Pacic', 'SummitDermatology & <Partners>'],
@@ -1356,6 +1366,70 @@ const results = await page.evaluate(async () => {
   const lastRow = `Row ${texas.rows} of ${texas.rows},`
   results.push({ ok: texasText.includes(lastRow), name: 'deck wording: a one-row slide reads "Row N of M"', detail: lastRow })
   results.push({ ok: !/Rows (\d+)-\1 of/.test(texasText), name: 'deck wording: never "Rows N-N"', detail: '' })
+}
+
+// The PDF with non-Latin lessors. Chart labels are drawn in the embedded condensed face, whose
+// text is glyph IDs; each font's ToUnicode map turns them back into letters.
+{
+  const { inflateSync } = await import('node:zlib')
+  const buffer = Buffer.from(await page.evaluate(() => window.__intlPdf), 'base64')
+  const bin = buffer.toString('latin1')
+  const objects = new Map()
+  for (const m of bin.matchAll(/(\d+) 0 obj([\s\S]*?)endobj/g)) {
+    const body = m[2]
+    const at = body.search(/stream\r?\n/)
+    let stream = null
+    if (at >= 0) {
+      const start = m.index + m[0].indexOf(body) + body.indexOf('\n', at) + 1
+      try {
+        stream = inflateSync(buffer.subarray(start, bin.indexOf('endstream', start))).toString('latin1')
+      } catch {
+        stream = null
+      }
+    }
+    objects.set(m[1], { dict: at >= 0 ? body.slice(0, at) : body, stream })
+  }
+  const cmaps = new Map()
+  for (const m of bin.matchAll(/\/(F\d+) (\d+) 0 R/g)) {
+    const font = objects.get(m[2])
+    const toUnicode = /\/ToUnicode (\d+) 0 R/.exec(font?.dict ?? '')?.[1]
+    if (!toUnicode || cmaps.has(m[1])) continue
+    const map = new Map()
+    const cmap = objects.get(toUnicode)?.stream ?? ''
+    for (const block of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+      for (const e of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) map.set(parseInt(e[1], 16), String.fromCodePoint(parseInt(e[2], 16)))
+    }
+    for (const block of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+      for (const e of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) {
+        for (let g = parseInt(e[1], 16), u = parseInt(e[3], 16); g <= parseInt(e[2], 16); g++, u++) map.set(g, String.fromCodePoint(u))
+      }
+    }
+    cmaps.set(m[1], map)
+  }
+  const literal = (raw) =>
+    raw.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, e) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' })[e] ?? String.fromCharCode(parseInt(e, 8)))
+  const winAnsi = (text) => Buffer.from(text, 'latin1').toString('latin1')
+  const runs = []
+  for (const { stream } of objects.values()) {
+    if (!stream || !/\bTf\b/.test(stream)) continue
+    let font = ''
+    for (const t of stream.matchAll(/\/(F\d+) [\d.]+ Tf|\(((?:\\.|[^\\)])*)\)\s*Tj|<([0-9a-fA-F]+)>\s*Tj/g)) {
+      if (t[1]) font = t[1]
+      else if (t[2] !== undefined) runs.push(winAnsi(literal(t[2])))
+      else if (t[3] !== undefined) {
+        const map = cmaps.get(font)
+        let text = ''
+        for (let i = 0; i + 4 <= t[3].length; i += 4) text += map?.get(parseInt(t[3].slice(i, i + 4), 16)) ?? '\uFFFD'
+        runs.push(text)
+      }
+    }
+  }
+  const text = runs.join(' ')
+  results.push({ ok: cmaps.size > 0 && text.includes('Total area leased') && text.includes('Q1 22'), name: 'pdf labels: the text decodes, the condensed face included', detail: `${cmaps.size} maps` })
+  // Ł and ź are not in the face and decompose; ó is, and stays.
+  results.push({ ok: text.includes('Lódz Ventas'), name: 'pdf labels: a letter the face lacks is decomposed in a chart label', detail: '' })
+  results.push({ ok: !text.includes('ód Ventas'), name: 'pdf labels: never silently dropped', detail: '' })
+  results.push({ ok: text.includes('?? Welltower'), name: 'pdf labels: an unsupported script is marked in a chart label', detail: '' })
 }
 
 let failed = 0

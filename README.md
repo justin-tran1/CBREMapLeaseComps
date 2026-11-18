@@ -379,7 +379,7 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 524 assertions
+npm run test:units               # terminal 2, 529 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
@@ -399,7 +399,8 @@ choices, which parts can be exported, the table's rows and order, the deck table
 fitting at its worst (every column, GUID comp IDs, a 2,500-character comment), the PDF's text
 handling, and the PDF page count against real files for a spread of choices. It writes a deck
 from a sheet full of control characters and parses every XML part, the charts' embedded
-workbooks included. `tests/maplayers.mjs` asks the map itself which
+workbooks included, and it reads back a PDF's text, glyph IDs and all, to check that chart
+labels with non-Latin names print the way the table does. `tests/maplayers.mjs` asks the map itself which
 footprints the sweep colored in and which boundary segments the filters admitted, which the DOM
 cannot show and which is where this has gone wrong before; it needs the dev server, where the map
 is published on `window.__cbreMap` for exactly that purpose and nowhere else. `tests/smoke.mjs` drives the real
