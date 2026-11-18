@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from 'react'
 import { CHART_PALETTES, type ChartPaletteId } from './palette'
 
 /**
@@ -50,7 +49,11 @@ export function parseChartPrefs(raw: unknown): ChartPrefs {
   }
 }
 
-function readStored(): ChartPrefs {
+/*
+ * The prefs themselves live in the app state, not in the dashboard, because the export reads
+ * them too and can be opened from the map tab while the dashboard is not mounted at all.
+ */
+export function readStoredChartPrefs(): ChartPrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     return parseChartPrefs(raw ? JSON.parse(raw) : null)
@@ -59,36 +62,21 @@ function readStored(): ChartPrefs {
   }
 }
 
+export function writeStoredChartPrefs(prefs: ChartPrefs): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+  } catch {
+    // Private browsing. The choice holds for this session.
+  }
+}
+
+export function isDefaultChartPrefs(prefs: ChartPrefs): boolean {
+  return (Object.keys(DEFAULT_CHART_PREFS) as Array<keyof ChartPrefs>).every(
+    (key) => prefs[key] === DEFAULT_CHART_PREFS[key],
+  )
+}
+
 /** Chart height multiplier, so compact means shorter rather than cramped. */
 export function densityScale(density: ChartDensity): number {
   return density === 'compact' ? 0.78 : 1
-}
-
-export function useChartPrefs(): {
-  prefs: ChartPrefs
-  setPref: <K extends keyof ChartPrefs>(key: K, value: ChartPrefs[K]) => void
-  reset: () => void
-  isDefault: boolean
-} {
-  const [prefs, setPrefs] = useState<ChartPrefs>(readStored)
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
-    } catch {
-      // Private browsing. The choice holds for this session.
-    }
-  }, [prefs])
-
-  const setPref = useCallback(<K extends keyof ChartPrefs>(key: K, value: ChartPrefs[K]) => {
-    setPrefs((prev) => ({ ...prev, [key]: value }))
-  }, [])
-
-  const reset = useCallback(() => setPrefs(DEFAULT_CHART_PREFS), [])
-
-  const isDefault = (Object.keys(DEFAULT_CHART_PREFS) as Array<keyof ChartPrefs>).every(
-    (key) => prefs[key] === DEFAULT_CHART_PREFS[key],
-  )
-
-  return { prefs, setPref, reset, isDefault }
 }

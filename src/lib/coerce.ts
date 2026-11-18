@@ -13,6 +13,23 @@ export function isNullish(value: unknown): boolean {
   return false
 }
 
+/**
+ * Characters no text field should keep, matched by code point: the C0 controls that are not
+ * whitespace, unpaired surrogate halves, and the noncharacters U+FFFE and U+FFFF. XML cannot
+ * carry any of them, not even escaped, so one in a tenant's name would make an exported deck
+ * corrupt. They arrive in text pasted out of Word or a PDF; Excel stores them as _x001E_ and the
+ * like.
+ */
+const INVISIBLE = /[\u0000-\u0008\u000E-\u001D\u001F\uD800-\uDFFF￾￿]/gu
+
+/**
+ * Text cleaned for display and for files: invisible control characters gone, whitespace runs
+ * collapsed to one space. Word's non-breaking hyphen (U+001E) becomes a hyphen, the one it shows.
+ */
+export function cleanText(value: string): string {
+  return value.replace(/\u001E/g, '-').replace(INVISIBLE, '').replace(/\s+/g, ' ').trim()
+}
+
 export function toText(value: unknown): string {
   if (isNullish(value)) return ''
   if (value instanceof Date) return formatDateISO(value)
@@ -20,7 +37,9 @@ export function toText(value: unknown): string {
   if (typeof value === 'number') {
     return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)))
   }
-  return String(value).replace(/\s+/g, ' ').trim()
+  const text = cleanText(String(value))
+  // Checked again once cleaned, so "N/A" with a stray control character still reads as blank.
+  return isNullish(text) ? '' : text
 }
 
 /**

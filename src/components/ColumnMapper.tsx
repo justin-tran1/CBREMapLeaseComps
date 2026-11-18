@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useApp } from '../state/AppContext'
 import { autoMapColumns, FIELDS, FIELD_GROUPS, missingRequiredFields } from '../lib/fields'
 import { toText } from '../lib/coerce'
+import { confidentialityText } from '../lib/normalize'
 import { IconAlert, IconCheck, IconInfo, IconRefresh } from './Icons'
 import type { FieldKey } from '../types'
 
@@ -10,21 +11,34 @@ const PREVIEW_LIMIT = 3
 export function ColumnMapper() {
   const { sheet, columnMap, setColumnMap, confirmMapping, changeSheet, loadingFile, parseError, deals } = useApp()
 
+  // The first few values of a column, read the way the import reads them for the field.
+  const previewOf = (header: string, read: (value: unknown) => string) => {
+    const samples: string[] = []
+    for (const row of sheet?.rows ?? []) {
+      const text = read(row[header])
+      if (text) samples.push(text.length > 28 ? `${text.slice(0, 28)}…` : text)
+      if (samples.length >= PREVIEW_LIMIT) break
+    }
+    return samples.join(' · ')
+  }
+
   const previews = useMemo(() => {
     const result = new Map<string, string>()
     if (!sheet) return result
-
-    for (const header of sheet.headers) {
-      const samples: string[] = []
-      for (const row of sheet.rows) {
-        const text = toText(row[header])
-        if (text) samples.push(text.length > 28 ? `${text.slice(0, 28)}…` : text)
-        if (samples.length >= PREVIEW_LIMIT) break
-      }
-      result.set(header, samples.join(' · '))
-    }
+    for (const header of sheet.headers) result.set(header, previewOf(header, toText))
     return result
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- previewOf reads only the sheet
   }, [sheet])
+
+  // Every other field reads "Confidential" as a withheld value; this one reads it as the flag.
+  const confidentialityHeader = columnMap.confidentiality ?? ''
+  const confidentialityPreview = useMemo(
+    () => (sheet && confidentialityHeader ? previewOf(confidentialityHeader, confidentialityText) : ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- previewOf reads only the sheet
+    [sheet, confidentialityHeader],
+  )
+  const previewFor = (key: FieldKey, header: string) =>
+    key === 'confidentiality' ? confidentialityPreview : (previews.get(header) ?? '')
 
   const usage = useMemo(() => {
     const counts = new Map<string, number>()
@@ -171,9 +185,9 @@ export function ColumnMapper() {
                         ))}
                       </select>
 
-                      <div className="mapper__preview" title={previews.get(value) || ''}>
+                      <div className="mapper__preview" title={previewFor(field.key, value)}>
                         {value
-                          ? previews.get(value) || 'No values in this column'
+                          ? previewFor(field.key, value) || 'No values in this column'
                           : unmappedRequired
                             ? 'Required for the map and dashboard'
                             : ' '}

@@ -1,5 +1,5 @@
 import { fmtArea, fmtDate, fmtMonths, fmtRent, fmtText, EMPTY } from '../lib/format'
-import { dealLabel, fullAddress, resolveBrokers, resolveEscalation } from '../lib/normalize'
+import { confidentialityLabel, dealLabel, fullAddress, resolveBrokers, resolveEscalation } from '../lib/normalize'
 import { IconChevronLeft, IconChevronRight } from './Icons'
 import type { LeaseDeal, Site } from '../types'
 
@@ -23,14 +23,6 @@ function freeRentText(deal: LeaseDeal): string {
   if (deal.freeRent === 0) return 'None'
   const rounded = Math.round(deal.freeRent * 10) / 10
   return `${rounded} ${rounded === 1 ? 'month' : 'months'}`
-}
-
-/** Anything other than a plain "no" is worth flagging on a comp. */
-function confidentialLabel(deal: LeaseDeal | undefined): string {
-  const raw = (deal?.confidentiality ?? '').trim()
-  if (!raw) return ''
-  if (/^(no|none|n|false|public|not confidential|0)$/i.test(raw)) return ''
-  return /^(yes|y|true|1|confidential)$/i.test(raw) ? 'Confidential' : raw
 }
 
 /** Free-text columns that only some exports carry, kept out of the fixed field order. */
@@ -124,8 +116,8 @@ export function PropertyPopup({ site, deal, onSelectDeal }: PropertyPopupProps) 
             ? `${site.deals.length} deals at this address`
             : site.deals[0]?.propertySubtype || site.deals[0]?.propertyType || 'Lease comp'}
         </div>
-        {confidentialLabel(deal ?? site.deals[0]) && (
-          <div className="pop__flag">{confidentialLabel(deal ?? site.deals[0])}</div>
+        {confidentialityLabel(deal ?? site.deals[0]) && (
+          <div className="pop__flag">{confidentialityLabel(deal ?? site.deals[0])}</div>
         )}
         <div className="pop__title">{site.label}</div>
         {address && <div className="pop__address">{address}</div>}

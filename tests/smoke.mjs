@@ -15,6 +15,9 @@
 import { chromium } from 'playwright'
 import geojsonvt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
+import JSZip from 'jszip'
+import { readFileSync } from 'node:fs'
+import { inflateSync } from 'node:zlib'
 
 // Points at the preview server by default. Set BASE_URL to run the same suite against a
 // build hosted somewhere else, such as under the project subpath GitHub Pages serves.
@@ -604,6 +607,124 @@ check('escape cancels drawing', !(await page.locator('.map-hint').isVisible()))
 await page.getByRole('button', { name: 'Clear all filters' }).click()
 await page.waitForTimeout(500)
 
+// --------------------------------------------- 10b. drawing stays on the map
+/*
+ * The map stays mounted behind the dashboard, and the drawing tool listens for its keys on the
+ * whole document. While the tool outlived the map, Enter on any dashboard button did nothing,
+ * and with a polygon in flight it finished the half-drawn shape and filtered the dashboard by
+ * it. Enter on the Dashboard tab did the same instead of switching tabs. Each check presses a
+ * real key on a focused control, as a keyboard user would.
+ */
+const drawTool = page.getByRole('button', { name: 'Draw area' })
+const chartSettings = page.getByRole('button', { name: 'Chart settings', exact: true })
+const leaseDateSort = page.locator('.dtable th', { hasText: 'Lease date' }).locator('button')
+const mapSearch = page.getByPlaceholder('Jump to a property, tenant or address')
+const drawnChips = () => page.locator('.chip', { hasText: 'Drawn area' }).count()
+const matching = async () =>
+  (await page.locator('.rail__scroll .small.muted').first().innerText()).replace(/\s+/g, ' ')
+// The count includes the vertex following the cursor, so it runs one ahead of the clicks.
+const polygonPoints = async () =>
+  Number(/Polygon · (\d+) points/.exec(await page.locator('.map-status').first().innerText())?.[1])
+
+/** Three corners down and the ring still open, on a fresh tool whatever a failed check left on. */
+async function startPolygon() {
+  if ((await drawTool.getAttribute('aria-pressed')) === 'true') await drawTool.click()
+  await drawTool.click()
+  await page.waitForTimeout(250)
+  await page.mouse.click(canvasBox.x + 380, canvasBox.y + 220)
+  await page.mouse.click(canvasBox.x + 980, canvasBox.y + 220)
+  await page.mouse.click(canvasBox.x + 980, canvasBox.y + 680)
+}
+
+/** Drop a shape a failing check let through, so the failure does not spread to later sections. */
+async function dropStrayShape() {
+  if ((await drawnChips()) === 0) return
+  await page.getByRole('button', { name: 'Clear all filters' }).first().click()
+  await page.waitForTimeout(500)
+}
+
+// The tool left on with nothing drawn yet.
+await drawTool.click()
+await page.waitForTimeout(250)
+await page.getByRole('tab', { name: 'Dashboard' }).click()
+await page.waitForTimeout(1200)
+await chartSettings.focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(300)
+check('Enter reaches a dashboard button with the draw tool left on', await page.locator('.cset__panel').isVisible())
+// Closed with the mouse rather than Escape, which would end a drawing still running.
+if (await page.locator('.cset__panel').isVisible()) await chartSettings.click()
+await page.waitForTimeout(200)
+
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+check('leaving the map turns the draw tool off', (await drawTool.getAttribute('aria-pressed')) === 'false')
+
+// A polygon in flight when the dashboard opens.
+await startPolygon()
+await page.getByRole('tab', { name: 'Dashboard' }).click()
+await page.waitForTimeout(1200)
+await leaseDateSort.focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(400)
+check(
+  'Enter reaches a table header with a polygon in flight',
+  (await leaseDateSort.getAttribute('aria-sort')) === 'ascending',
+  `sorted ${await leaseDateSort.getAttribute('aria-sort')}`,
+)
+check(
+  'the half-drawn polygon does not become a filter',
+  (await drawnChips()) === 0 && (await matching()).startsWith('74 of 74'),
+  await matching(),
+)
+// Back to the default sort, newest first.
+await page.keyboard.press('Enter')
+await page.waitForTimeout(300)
+await dropStrayShape()
+
+// The keyboard's way to the dashboard, from the map, mid-polygon.
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+await startPolygon()
+await page.getByRole('tab', { name: 'Dashboard' }).focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(1200)
+check(
+  'Enter on the Dashboard tab switches tabs mid-polygon',
+  (await page.getByRole('tab', { name: 'Dashboard' }).getAttribute('aria-selected')) === 'true',
+)
+check(
+  'switching tabs mid-polygon commits nothing',
+  (await drawnChips()) === 0 && (await matching()).startsWith('74 of 74'),
+  await matching(),
+)
+await dropStrayShape()
+
+// On the map the keys still drive the drawing, and the search box keeps its own.
+await page.getByRole('tab', { name: 'Map' }).click()
+await page.waitForTimeout(800)
+await startPolygon()
+const pointsBefore = await polygonPoints()
+await page.keyboard.press('Backspace')
+await page.waitForTimeout(200)
+const pointsAfter = await polygonPoints()
+check('Backspace on the map still removes the last point', pointsAfter === pointsBefore - 1, `${pointsBefore} -> ${pointsAfter}`)
+await mapSearch.fill('Al')
+await page.keyboard.press('Backspace')
+await page.waitForTimeout(200)
+check(
+  'Backspace in the search box edits the text, not the shape',
+  (await mapSearch.inputValue()) === 'A' && (await polygonPoints()) === pointsAfter,
+  `"${await mapSearch.inputValue()}", ${await polygonPoints()} points`,
+)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(300)
+check(
+  'Escape cancels a polygon in flight, even from the search box',
+  !(await page.locator('.map-hint').isVisible()) && (await drawnChips()) === 0,
+)
+await mapSearch.fill('')
+
 // ------------------------------------------------------------ 11. dashboard
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1600)
@@ -676,6 +797,192 @@ check('settings reset restores the brand palette', (await seriesFill()) === befo
 await page.keyboard.press('Escape')
 await page.waitForTimeout(300)
 
+// --------------------------------------------- 11d. exporting the dashboard
+/**
+ * A PDF's page count and the text set in its standard fonts, read without a PDF tool. Chart
+ * titles and headings use the standard fonts, where text sits in the content streams as plain
+ * strings. Lines are joined with spaces, so a phrase that wrapped still reads as one.
+ */
+function pdfFacts(buffer) {
+  const bin = buffer.toString('latin1')
+  let content = ''
+  for (const m of bin.matchAll(/stream\r?\n/g)) {
+    const start = m.index + m[0].length
+    try {
+      content += inflateSync(buffer.subarray(start, bin.indexOf('endstream', start))).toString('latin1')
+    } catch {
+      // A stream that is not deflated text: an image or a font.
+    }
+  }
+  return {
+    pages: Number(/\/Type \/Pages[\s\S]*?\/Count (\d+)/.exec(bin)?.[1] ?? 0),
+    text: [...content.matchAll(/\((.*?)\)\s*Tj/g)].map((m) => m[1]).join(' '),
+  }
+}
+
+async function downloadFrom(trigger) {
+  const [download] = await Promise.all([page.waitForEvent('download'), trigger.click()])
+  return { name: download.suggestedFilename(), body: readFileSync(await download.path()) }
+}
+
+const exportDialog = page.getByRole('dialog', { name: 'Export dashboard' })
+const exportButton = page.locator('.dash__head').getByRole('button', { name: 'Export' })
+await exportButton.click()
+await exportDialog.waitFor()
+check('the export dialog opens from the dashboard', await exportDialog.isVisible())
+const partCount = await exportDialog.locator('.xdlg__count').innerText()
+check('every part is offered and included', partCount === '15 of 15 parts', partCount)
+// The estimate is worked out a moment after each change; read it once it has settled.
+const settledEstimate = async () => {
+  await exportDialog.locator('.xdlg__estimate:not([data-stale])').waitFor()
+  return exportDialog.locator('.xdlg__length').innerText()
+}
+const pdfEstimate = Number(/About (\d+) pages?/.exec(await settledEstimate())?.[1])
+const fullPdf = await downloadFrom(exportDialog.getByRole('button', { name: 'Download PDF' }))
+const fullFacts = pdfFacts(fullPdf.body)
+check('the PDF downloads under a dated name', /^cbre-hcls-dashboard-\d{8}-\d{4}\.pdf$/.test(fullPdf.name), fullPdf.name)
+check('the page estimate matches the file', fullFacts.pages === pdfEstimate, `${pdfEstimate} estimated, ${fullFacts.pages} written`)
+check(
+  'the PDF carries the charts',
+  ['Area leased by quarter', 'Top lessors by area leased', 'Signing to commencement'].every((t) => fullFacts.text.includes(t)),
+)
+check('the PDF carries the deal table', fullFacts.text.includes('All matching deals'))
+check('the dialog closes once the file is saved', (await exportDialog.count()) === 0)
+
+// A deck without one chart and without the table.
+await exportButton.click()
+await exportDialog.waitFor()
+await exportDialog.getByText('PowerPoint deck').click()
+await exportDialog.getByLabel('Top lessors by area leased').uncheck()
+await exportDialog.getByLabel('Deal table').uncheck()
+check('leaving parts out updates the count', (await exportDialog.locator('.xdlg__count').innerText()) === '13 of 15 parts')
+const slideEstimate = Number(/(\d+) slides?/.exec(await settledEstimate())?.[1])
+const deck = await downloadFrom(exportDialog.getByRole('button', { name: 'Download PowerPoint' }))
+const deckZip = await JSZip.loadAsync(deck.body)
+const deckFiles = Object.keys(deckZip.files)
+const slideXml = await Promise.all(
+  deckFiles.filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f)).map((f) => deckZip.file(f).async('string')),
+)
+const chartParts = deckFiles.filter((f) => /^ppt\/charts\/chart\d+\.xml$/.test(f)).length
+check('the deck downloads as .pptx', deck.name.endsWith('.pptx'), deck.name)
+check('the slide count matches the estimate', slideXml.length === slideEstimate, `${slideEstimate} estimated, ${slideXml.length} written`)
+// Nine dashboard charts and the field coverage, all as PowerPoint charts rather than pictures.
+check('the charts are native PowerPoint charts', chartParts === 10, `${chartParts} chart parts`)
+check('a part left out is not in the deck', !slideXml.some((x) => x.includes('Top lessors by area leased')))
+check('no table slides when the table is left out', !slideXml.some((x) => /<a:t>(All matching|Matching) deals/.test(x)))
+check('the deck is compressed', deck.body.length < 600_000, `${deck.body.length} bytes`)
+
+// The choices are remembered, and the top bar menu reaches the same dialog.
+await page.getByRole('button', { name: 'Download', exact: true }).click()
+await page.getByRole('menuitem', { name: /Dashboard report/ }).click()
+await exportDialog.waitFor()
+check('the top bar menu opens the export', await exportDialog.isVisible())
+check(
+  'the last choices are remembered',
+  (await exportDialog.getByLabel(/PowerPoint deck/).isChecked()) &&
+    !(await exportDialog.getByLabel('Top lessors by area leased').isChecked()),
+)
+
+// A titled PDF of the first 25 rows, without the confidential deals.
+await exportDialog.getByText('PDF report').click()
+await exportDialog.getByLabel('Deal table').check()
+await exportDialog.getByLabel('Title').fill('Kendall Square lab comps')
+await exportDialog.getByLabel('Rows', { exact: true }).selectOption('25')
+await exportDialog.getByLabel(/Leave out confidential deals/).check()
+const shortFacts = pdfFacts((await downloadFrom(exportDialog.getByRole('button', { name: 'Download PDF' }))).body)
+check('the chosen title is used', shortFacts.text.includes('Kendall Square lab comps'))
+check('the chart left out stays out', !shortFacts.text.includes('Top lessors by area leased'))
+check('a shortened table says so', shortFacts.text.includes('Matching deals') && shortFacts.text.includes('The first 25 of'))
+check('confidential deals left out are counted', /\d+ deals marked confidential left out/.test(shortFacts.text))
+const focusAfterExport = await page.evaluate(() => {
+  const el = document.activeElement
+  return { label: el?.getAttribute('aria-label') ?? '', tag: el?.tagName ?? '', text: el?.textContent?.trim().slice(0, 40) ?? '' }
+})
+check(
+  'focus returns to the menu button that opened the export',
+  focusAfterExport.label === 'Download',
+  JSON.stringify(focusAfterExport),
+)
+
+// Escape closes the dialog and hands focus back to the button that opened it.
+await exportButton.click()
+await exportDialog.waitFor()
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+check('escape closes the export dialog', (await exportDialog.count()) === 0)
+check('focus returns to the export button', (await page.evaluate(() => document.activeElement?.textContent?.trim())) === 'Export')
+
+// The CSV is still in the same menu.
+await page.getByRole('button', { name: 'Download', exact: true }).click()
+const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows/ }))
+const csvRows = csv.body.toString('utf8').trim().split(/\r?\n/).length
+check('the CSV still downloads every filtered row', csv.name.endsWith('.csv') && csvRows === 75, `${csv.name}, ${csvRows} lines`)
+check(
+  'focus returns to the menu button after the CSV',
+  (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Download',
+)
+
+// A control that disables itself when used keeps focus in the dialog, so Escape still closes it,
+// and keys pressed in the dialog never reach the page behind it (the map's drawing tool listens
+// on the document).
+await exportButton.click()
+await exportDialog.waitFor()
+await page.evaluate(() => {
+  window.__keysBehind = 0
+  document.addEventListener('keydown', () => {
+    window.__keysBehind++
+  })
+})
+await exportDialog.getByRole('button', { name: 'Leave out every charts part' }).focus()
+await page.keyboard.press('Enter')
+await page.waitForTimeout(150)
+check(
+  'focus stays in the dialog when a control disables itself',
+  await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')),
+  await page.evaluate(() => document.activeElement?.tagName ?? ''),
+)
+check('keys pressed in the dialog stay in it', (await page.evaluate(() => window.__keysBehind)) === 0)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+check('escape still closes the dialog after that', (await exportDialog.count()) === 0)
+
+// Leaving out confidential deals cannot lock the dialog: with only confidential deals matching,
+// the box that emptied the table stays live, so it can be unticked.
+const scottsdale = page.locator('#fsection-city .optionlist__item', { hasText: 'Scottsdale' }).locator('input')
+await scottsdale.check()
+await page.waitForTimeout(500)
+await exportButton.click()
+await exportDialog.waitFor()
+const tablePart = exportDialog.getByLabel('Deal table')
+const omitBox = exportDialog.getByLabel(/Leave out confidential deals/)
+// The titled PDF above left confidential deals out, and that choice is remembered, so the dialog
+// can open with the table already emptied: the state that used to lock.
+if (!(await omitBox.isChecked())) {
+  await tablePart.check()
+  await omitBox.check()
+}
+check('with only confidential deals matching, the table has nothing to list', await tablePart.isDisabled())
+check('the box that emptied the table can still be unticked', (await omitBox.isEnabled()) && (await omitBox.isChecked()))
+check(
+  'the dialog says how to list them',
+  await exportDialog.getByText('Untick "Leave out confidential deals" to list them.', { exact: false }).isVisible(),
+)
+// The Data group's None unticks the table part too; the hint still names the box to untick.
+await exportDialog.getByRole('button', { name: 'Leave out every data part' }).click()
+check(
+  'with the table part off as well, the hint still names the box',
+  await exportDialog.getByText('Untick "Leave out confidential deals" to list them.', { exact: false }).isVisible(),
+)
+await omitBox.uncheck()
+await tablePart.check()
+check('unticking it brings the table back', (await tablePart.isEnabled()) && (await tablePart.isChecked()))
+await page.keyboard.press('Escape')
+await scottsdale.uncheck()
+await page.waitForTimeout(500)
+
+// Leave the export choices as a first visit finds them.
+await page.evaluate(() => localStorage.removeItem('cbre-hcls-mapper.exportPrefs.v1'))
+
 await page.locator('#fsection-city .optionlist__item', { hasText: 'Houston' }).locator('input').check()
 await page.waitForTimeout(800)
 check('dashboard responds to the shared filters', (await page.locator('.dash__sub').innerText()).includes('7 of 74'))
@@ -712,6 +1019,25 @@ check('dashboard survives the theme swap', (await page.locator('.chart .recharts
 await page.getByRole('tab', { name: 'Map' }).click()
 await page.waitForTimeout(1200)
 check('map still mounted after a tab round trip', (await page.locator('.pin-wrap').count()) === 32)
+
+// --------------------------------------------- 13b. the mapper reads a flag word
+// Every other field reads "Confidential" as a withheld value; the confidentiality preview must
+// show it, since the import counts it as the flag.
+await page.getByRole('button', { name: 'Upload a different spreadsheet' }).click()
+await page.locator('input[type=file]').setInputFiles({
+  name: 'flags.csv',
+  mimeType: 'text/csv',
+  buffer: Buffer.from(
+    'Comp ID,Confidentiality,Address,City,State\nF1,Confidential,1 Main St,Boston,MA\nF2,No,2 Main St,Boston,MA\n',
+  ),
+})
+const confidentialityRow = page.locator('.mapper__row', { has: page.locator('#map-confidentiality') })
+await confidentialityRow.waitFor()
+check(
+  'the mapper previews the confidentiality flag word',
+  (await confidentialityRow.locator('.mapper__preview').first().innerText()).includes('Confidential · No'),
+  await confidentialityRow.locator('.mapper__preview').first().innerText(),
+)
 
 // --------------------------------------------------------------- 14. errors
 const realErrors = errors.filter(

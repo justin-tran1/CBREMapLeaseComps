@@ -815,6 +815,16 @@ export function MapTab({ hidden, railOpen, onOpenRail }: MapTabProps) {
 
   // --------------------------------------------------------------- drawing
 
+  /*
+   * A drawing belongs to the map on screen, so leaving for the dashboard ends it, as Escape
+   * would. The map stays mounted behind the dashboard, and a drawing left running there would
+   * keep its keyboard shortcuts on a page that cannot show the shape: Enter on a dashboard
+   * button would finish a half-drawn polygon and quietly filter the dashboard by it.
+   */
+  useEffect(() => {
+    if (hidden) setDrawMode(null)
+  }, [hidden])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready || !drawMode) return

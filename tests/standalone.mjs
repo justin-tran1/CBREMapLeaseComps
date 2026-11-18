@@ -10,7 +10,7 @@
  * Tile hosts are blocked during the run, so no external service is contacted.
  */
 import { chromium } from 'playwright'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const FILE = resolve('standalone/index.html')
@@ -83,6 +83,28 @@ await page.waitForTimeout(400)
 await page.getByRole('tab', { name: 'Dashboard' }).click()
 await page.waitForTimeout(1500)
 check('dashboard charts render', (await page.locator('.chart .recharts-surface').count()) === 10)
+
+// Both exports work offline: the PDF and PowerPoint libraries, the fonts and the wordmark are all
+// inside the file, so nothing is fetched (the request check below covers that too).
+const exportDialog = page.getByRole('dialog', { name: 'Export dashboard' })
+for (const [format, button, signature] of [
+  ['PDF report', 'Download PDF', '%PDF-'],
+  ['PowerPoint deck', 'Download PowerPoint', 'PK'],
+]) {
+  await page.locator('.dash__head').getByRole('button', { name: 'Export' }).click()
+  await exportDialog.waitFor()
+  await exportDialog.getByText(format).click()
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    exportDialog.getByRole('button', { name: button }).click(),
+  ])
+  const bytes = readFileSync(await download.path())
+  check(
+    `the ${format.toLowerCase()} exports from file://`,
+    bytes.subarray(0, signature.length).toString('latin1') === signature && bytes.length > 20000,
+    `${download.suggestedFilename()}, ${bytes.length} bytes`,
+  )
+}
 
 check('the file is self-contained, no asset requests', external.length === 0, external.slice(0, 3).join(' '))
 const realErrors = errors.filter(

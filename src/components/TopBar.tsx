@@ -1,15 +1,120 @@
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useApp } from '../state/AppContext'
 import { dealsToCsv, downloadCsv, timestampedName } from '../lib/exportCsv'
-import { IconChart, IconDownload, IconMap, IconMoon, IconSettings, IconSun, IconUpload } from './Icons'
+import { IconChart, IconDownload, IconMap, IconMoon, IconSettings, IconSun, IconTable, IconUpload } from './Icons'
 import wordmark from '../assets/cbre-wordmark-white.png'
 
-export function TopBar() {
-  const { phase, tab, setTab, theme, setTheme, fileName, deals, filtered, reset, reopenMapping } = useApp()
+/**
+ * The top bar's download button: the filtered rows as CSV, as before, or the dashboard as a
+ * PDF report or PowerPoint deck through the export dialog.
+ */
+function DownloadMenu() {
+  const { filtered, setExportOpen } = useApp()
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuId = useId()
+  const rows = filtered.length
 
-  const exportVisible = () => {
-    if (filtered.length === 0) return
+  useEffect(() => {
+    if (!open) return
+    wrapRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus()
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  // Arrow keys move between the items, as in any menu.
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return
+    if (event.key === 'Tab') {
+      setOpen(false)
+      return
+    }
+    event.preventDefault()
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'))
+    if (items.length === 0) return
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : event.key === 'ArrowDown'
+            ? (index + 1) % items.length
+            : (index - 1 + items.length) % items.length
+    items[next].focus()
+  }
+
+  // Each item unmounts with the menu, so focus goes back to the menu button first rather than
+  // dropping to <body>. The export dialog then hands it back there when it closes.
+  const downloadRows = () => {
+    buttonRef.current?.focus()
+    setOpen(false)
+    if (rows === 0) return
     downloadCsv(timestampedName('cbre-hcls-lease-comps'), dealsToCsv(filtered))
   }
+
+  const openExport = () => {
+    buttonRef.current?.focus()
+    setOpen(false)
+    setExportOpen(true)
+  }
+
+  return (
+    <div className="dlmenu" ref={wrapRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="icon-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((v) => !v)}
+        title="Download the filtered rows or the dashboard"
+        aria-label="Download"
+      >
+        <IconDownload size={15} />
+      </button>
+
+      {open && (
+        <div className="dlmenu__panel" role="menu" id={menuId} aria-label="Download" onKeyDown={onMenuKeyDown}>
+          <button type="button" role="menuitem" className="dlmenu__item" onClick={downloadRows} disabled={rows === 0}>
+            <IconTable size={16} />
+            <span className="grow">
+              Deal rows (CSV)
+              <span className="dlmenu__sub">
+                {rows === 0 ? 'No rows pass the filters' : `The ${rows.toLocaleString('en-US')} ${rows === 1 ? 'row' : 'rows'} passing the filters`}
+              </span>
+            </span>
+          </button>
+          <button type="button" role="menuitem" className="dlmenu__item" onClick={openExport}>
+            <IconChart size={16} />
+            <span className="grow">
+              Dashboard report…
+              <span className="dlmenu__sub">PDF or PowerPoint, with the parts you choose</span>
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TopBar() {
+  const { phase, tab, setTab, theme, setTheme, fileName, deals, reset, reopenMapping } = useApp()
 
   return (
     <header className="topbar">
@@ -64,15 +169,7 @@ export function TopBar() {
       <div className="topbar__actions">
         {phase === 'ready' && (
           <>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={exportVisible}
-              title="Download the rows currently passing the filters as CSV"
-              aria-label="Download filtered rows as CSV"
-            >
-              <IconDownload size={15} />
-            </button>
+            <DownloadMenu />
             <button
               type="button"
               className="icon-btn"

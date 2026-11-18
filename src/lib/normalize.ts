@@ -1,4 +1,5 @@
 import {
+  cleanText,
   detectDurationUnit,
   formatDateISO,
   normalizeState,
@@ -198,7 +199,7 @@ export function normalizeDeals(sheet: ParsedSheet, map: ColumnMap): LeaseDeal[] 
       notes: toText(pick(row, map, 'notes')),
 
       compId: toText(pick(row, map, 'compId')),
-      confidentiality: toText(pick(row, map, 'confidentiality')),
+      confidentiality: confidentialityText(pick(row, map, 'confidentiality')),
 
       raw: row,
     }
@@ -235,6 +236,41 @@ export function resolveEscalation(deal: LeaseDeal): string {
   if (adds(comments)) parts.push(comments)
 
   return parts.join(' · ')
+}
+
+/**
+ * The confidentiality cell as text. Every other field reads "Confidential" or "Undisclosed" as a
+ * withheld value and keeps a blank; in this one the word is the flag itself, so it stays.
+ */
+export function confidentialityText(value: unknown): string {
+  if (typeof value === 'string') {
+    const text = cleanText(value)
+    if (/^(confidential|undisclosed|not disclosed)$/i.test(text)) return text
+  }
+  return toText(value)
+}
+
+/**
+ * Values that say a deal is not confidential. "Non-Confidential" contains the word, so it is
+ * listed, written however the sheet joins the two words: a hyphen, a dash, spaces or nothing.
+ */
+const NOT_CONFIDENTIAL = /^(no|n|none|false|0|public|unrestricted|not[\s\u2010-\u2015-]*restricted|no[nt][\s\u2010-\u2015-]*confidential)$/i
+
+/**
+ * How the sheet marks a deal confidential, or '' when it does not.
+ *
+ * Anything other than a plain "no" is worth flagging: exports say "Yes", "Confidential",
+ * "Restricted" or a reason, and a flag that misses one of those lets a restricted comp travel.
+ */
+export function confidentialityLabel(deal: Pick<LeaseDeal, 'confidentiality'> | undefined): string {
+  const raw = (deal?.confidentiality ?? '').trim()
+  if (!raw) return ''
+  if (NOT_CONFIDENTIAL.test(raw)) return ''
+  return /^(yes|y|true|1|x|confidential)$/i.test(raw) ? 'Confidential' : raw
+}
+
+export function isConfidential(deal: Pick<LeaseDeal, 'confidentiality'>): boolean {
+  return confidentialityLabel(deal) !== ''
 }
 
 /** Everyone who touched the deal, de-duplicated. */
