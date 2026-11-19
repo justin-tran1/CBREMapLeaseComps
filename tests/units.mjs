@@ -208,6 +208,26 @@ const results = await page.evaluate(async () => {
     new Set(Object.values(cbre)).size === Object.values(cbre).length)
   eq('CBRE schema: every column is mapped', Object.keys(expectCbre).length, 45)
 
+  // The filtered-rows download writes the same schema, in the same order, and loads back in:
+  // every header it writes maps onto the very field its values came from.
+  const exportCsv = await import('/src/lib/exportCsv.ts')
+  const csvHeaders = exportCsv.CSV_COLUMNS.map((c) => c.header)
+  eq('CSV download: the schema\'s columns in the schema\'s order', csvHeaders, [
+    'Confidentiality', 'Signed Date', 'Start Date', 'Lease Term', 'End Date',
+    'Lease Transaction Type', 'Lease Type', 'Tenant', 'Property Subtype', 'Property Class',
+    'Submarket', 'District', 'Property Name', 'Address', 'Floor', 'Suite', 'City',
+    'Area Leased', 'Office Area (Deprecated)', 'Base Rent Yearly', 'Rate Type',
+    'OPEX (Yearly)', 'Escalation Value', 'Escalation Percent', 'Escalation Comments',
+    'Free Rent Months', 'TI Allowance', 'TIs As-Is', 'TI Notes', 'Other Concessions',
+    'Notes', 'Tenant Agent(s)', 'Tenant Representative', 'Listing Agent(s)',
+    'Listing Representative', 'Sublessor', 'Lessor', 'Tenant NAICS Code', 'Year Built',
+    'Property Type', 'Market', 'State', 'Latitude', 'Longitude', 'Comp ID',
+  ])
+  const reimported = fields.autoMapColumns(csvHeaders)
+  const roundTripMisses = exportCsv.CSV_COLUMNS.filter((c) => reimported[c.field] !== c.header)
+  eq('CSV download: every column loads back into the field it was written from',
+    roundTripMisses.map((c) => `${c.header} -> ${c.field}`), [])
+
   // ------------------------------------------------------------ geometry
   const box = [[0, 0], [0, 10], [10, 10], [10, 0]]
   truthy('point inside polygon', geometry.pointInPolygon(5, 5, box))
