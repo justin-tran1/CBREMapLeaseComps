@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../state/AppContext'
 import { dealsToCsv, downloadCsv, timestampedName } from '../lib/exportCsv'
+import { dealsToXlsx, downloadXlsx } from '../lib/exportXlsx'
 import { describeSort, initialDirection, sortDeals, TABLE_COLUMNS as COLUMNS } from '../lib/tableColumns'
 import { IconDownload, IconPin } from './Icons'
 
@@ -56,6 +57,16 @@ export function DataTable() {
               ))}
             </select>
           </label>
+          {/* Both write the rows in the table's own sort order. */}
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={() => downloadXlsx(timestampedName('cbre-hcls-lease-comps', 'xlsx'), dealsToXlsx(sorted))}
+            disabled={sorted.length === 0}
+          >
+            <IconDownload size={13} />
+            Export Excel
+          </button>
           <button
             type="button"
             className="btn btn--sm"

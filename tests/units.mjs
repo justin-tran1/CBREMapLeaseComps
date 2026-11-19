@@ -211,7 +211,7 @@ const results = await page.evaluate(async () => {
   // The filtered-rows download writes the same schema, in the same order, and loads back in:
   // every header it writes maps onto the very field its values came from.
   const exportCsv = await import('/src/lib/exportCsv.ts')
-  const csvHeaders = exportCsv.CSV_COLUMNS.map((c) => c.header)
+  const csvHeaders = exportCsv.ROW_COLUMNS.map((c) => c.header)
   eq('CSV download: the schema\'s columns in the schema\'s order', csvHeaders, [
     'Confidentiality', 'Signed Date', 'Start Date', 'Lease Term', 'End Date',
     'Lease Transaction Type', 'Lease Type', 'Tenant', 'Property Subtype', 'Property Class',
@@ -224,7 +224,7 @@ const results = await page.evaluate(async () => {
     'Property Type', 'Market', 'State', 'Latitude', 'Longitude', 'Comp ID',
   ])
   const reimported = fields.autoMapColumns(csvHeaders)
-  const roundTripMisses = exportCsv.CSV_COLUMNS.filter((c) => reimported[c.field] !== c.header)
+  const roundTripMisses = exportCsv.ROW_COLUMNS.filter((c) => reimported[c.field] !== c.header)
   eq('CSV download: every column loads back into the field it was written from',
     roundTripMisses.map((c) => `${c.header} -> ${c.field}`), [])
 
@@ -1029,6 +1029,25 @@ const results = await page.evaluate(async () => {
     // The sample, as the app loads it.
     const sheet = await readSpreadsheet(sampleFile())
     const sampleDeals = normalize.normalizeDeals(sheet, fields.autoMapColumns(sheet.headers))
+
+    // The filtered-rows downloads load back in whole. Each file is read by the app's own reader
+    // and importer, and the deals it yields write a CSV identical to the original's, which
+    // compares every value in every column at once.
+    const exportXlsx = await import('/src/lib/exportXlsx.ts')
+    const reload = async (blob, name) => {
+      const back = await readSpreadsheet(new File([blob], name))
+      return { back, deals: normalize.normalizeDeals(back, fields.autoMapColumns(back.headers)) }
+    }
+    const originalCsv = exportCsv.dealsToCsv(sampleDeals)
+    const fromCsv = await reload(new Blob([originalCsv], { type: 'text/csv' }), 'rows.csv')
+    eq('CSV download: every value survives a reload', exportCsv.dealsToCsv(fromCsv.deals), originalCsv)
+    const fromXlsx = await reload(exportXlsx.dealsToXlsx(sampleDeals), 'rows.xlsx')
+    eq('Excel download: same headers as the CSV', fromXlsx.back.headers, exportCsv.ROW_COLUMNS.map((c) => c.header))
+    eq('Excel download: every value survives a reload', exportCsv.dealsToCsv(fromXlsx.deals), originalCsv)
+    const firstXlsxRow = fromXlsx.back.rows[0]
+    truthy('Excel download: dates are real dates', firstXlsxRow['Signed Date'] instanceof Date)
+    eq('Excel download: numbers are numbers', typeof firstXlsxRow['Area Leased'], 'number')
+    eq('Excel download: codes stay text', typeof firstXlsxRow['Tenant NAICS Code'], 'string')
     const ctxFor = (f, tableSort = tableColumns.DEFAULT_TABLE_SORT) => ({
       deals: sampleDeals,
       filtered: filters.applyFilters(sampleDeals, f),
