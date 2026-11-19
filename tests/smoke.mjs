@@ -918,13 +918,13 @@ const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows/ })
 const csvRows = csv.body.toString('utf8').trim().split(/\r?\n/).length
 check('the CSV still downloads every filtered row', csv.name.endsWith('.csv') && csvRows === 75, `${csv.name}, ${csvRows} lines`)
 // Its columns are the practice's export schema, in the schema's order, as the upload checks above
-// map it. The sample has no commas in a header, so a plain split reads the row.
+// map it, then ZIP. The sample has no commas in a header, so a plain split reads the row.
 const csvHeader = csv.body.toString('utf8').replace(/^﻿/, '').split(/\r?\n/)[0].split(',')
-const schemaOrder = Object.values(EXPECTED_MAPPING)
+const csvOrder = [...Object.values(EXPECTED_MAPPING), 'ZIP']
 check(
-  'the CSV columns follow the export schema in order',
-  csvHeader.length === schemaOrder.length && csvHeader.every((h, i) => h.toLowerCase() === schemaOrder[i].toLowerCase()),
-  csvHeader.slice(0, 4).join(' | ') + ` … ${csvHeader.length} columns`,
+  'the CSV columns follow the export schema in order, then ZIP',
+  csvHeader.length === csvOrder.length && csvHeader.every((h, i) => h.toLowerCase() === csvOrder[i].toLowerCase()),
+  csvHeader.slice(0, 2).join(' | ') + ` … ${csvHeader.slice(-2).join(' | ')}, ${csvHeader.length} columns`,
 )
 check(
   'focus returns to the menu button after the CSV',

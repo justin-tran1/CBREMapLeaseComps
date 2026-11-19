@@ -208,11 +208,11 @@ const results = await page.evaluate(async () => {
     new Set(Object.values(cbre)).size === Object.values(cbre).length)
   eq('CBRE schema: every column is mapped', Object.keys(expectCbre).length, 45)
 
-  // The filtered-rows download writes the same schema, in the same order, and loads back in:
-  // every header it writes maps onto the very field its values came from.
+  // The filtered-rows download writes the same schema, in the same order, with ZIP after it,
+  // and loads back in: every header it writes maps onto the very field its values came from.
   const exportCsv = await import('/src/lib/exportCsv.ts')
   const csvHeaders = exportCsv.CSV_COLUMNS.map((c) => c.header)
-  eq('CSV download: the schema\'s columns in the schema\'s order', csvHeaders, [
+  eq('CSV download: the schema\'s columns in the schema\'s order, then ZIP', csvHeaders, [
     'Confidentiality', 'Signed Date', 'Start Date', 'Lease Term', 'End Date',
     'Lease Transaction Type', 'Lease Type', 'Tenant', 'Property Subtype', 'Property Class',
     'Submarket', 'District', 'Property Name', 'Address', 'Floor', 'Suite', 'City',
@@ -221,7 +221,7 @@ const results = await page.evaluate(async () => {
     'Free Rent Months', 'TI Allowance', 'TIs As-Is', 'TI Notes', 'Other Concessions',
     'Notes', 'Tenant Agent(s)', 'Tenant Representative', 'Listing Agent(s)',
     'Listing Representative', 'Sublessor', 'Lessor', 'Tenant NAICS Code', 'Year Built',
-    'Property Type', 'Market', 'State', 'Latitude', 'Longitude', 'Comp ID',
+    'Property Type', 'Market', 'State', 'Latitude', 'Longitude', 'Comp ID', 'ZIP',
   ])
   const reimported = fields.autoMapColumns(csvHeaders)
   const roundTripMisses = exportCsv.CSV_COLUMNS.filter((c) => reimported[c.field] !== c.header)

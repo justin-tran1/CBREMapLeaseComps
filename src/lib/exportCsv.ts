@@ -66,6 +66,8 @@ export const CSV_COLUMNS: Array<{ header: string; field: FieldKey; get: (d: Leas
   { header: 'Latitude', field: 'latitude', get: (d) => coordinate(d.lat) },
   { header: 'Longitude', field: 'longitude', get: (d) => coordinate(d.lon) },
   { header: 'Comp ID', field: 'compId', get: (d) => d.compId },
+  // Not part of the export schema, so it follows the schema rather than breaking its order.
+  { header: 'ZIP', field: 'zip', get: (d) => d.zip },
 ]
 
 export function dealsToCsv(deals: LeaseDeal[]): string {

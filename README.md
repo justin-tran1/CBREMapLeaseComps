@@ -72,7 +72,7 @@ Comp exports split escalation across several columns, usually with a zero standi
 | Escalation comments | `Escalation Comments` | Appended, because a stepped escalation only reads in full |
 
 Columns the tool does not recognize stay attached to their row, though the CSV export
-writes only the schema's columns.
+writes only the schema's columns and ZIP.
 
 ### The export schema it is tuned for
 
@@ -283,7 +283,7 @@ The **Export** button on the dashboard opens the export, and so does **Dashboard
 under the download button in the header. The CSV of the filtered rows sits in the same menu.
 It writes the 45 columns of the export schema above, under the same headers and in the same
 order, from Confidentiality to Comp ID, so it reads like the export it came from and loads
-straight back in.
+straight back in. ZIP follows as a 46th column.
 
 Pick the parts to include, in four groups:
 
