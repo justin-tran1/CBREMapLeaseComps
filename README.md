@@ -71,8 +71,8 @@ Comp exports split escalation across several columns, usually with a zero standi
 | Escalation type | `Escalation Type` | Appended when it adds something |
 | Escalation comments | `Escalation Comments` | Appended, because a stepped escalation only reads in full |
 
-Columns the tool does not recognize stay attached to their row, though the CSV export
-writes only the schema's columns.
+Columns the tool does not recognize stay attached to their row, though the Excel and CSV
+exports write only the schema's columns.
 
 ### The export schema it is tuned for
 
@@ -271,7 +271,8 @@ hue.
 
 A field coverage panel shows how many rows carry a value for each field, which is usually
 the answer when a chart looks thinner than expected. The table beneath lists every matching
-row, sorts on any column, pages at 50 to 1,000 rows, and exports to CSV. The pin button on
+row, sorts on any column, pages at 50 to 1,000 rows, and exports to Excel or CSV in its own
+sort order. The pin button on
 a row jumps to that deal on the map.
 
 Rent averages weight by area leased, so a 200,000 sq. ft. deal moves the average more than
@@ -280,10 +281,12 @@ a 1,200 sq. ft. suite.
 ## Exporting the dashboard
 
 The **Export** button on the dashboard opens the export, and so does **Dashboard report…**
-under the download button in the header. The CSV of the filtered rows sits in the same menu.
-It writes the 45 columns of the export schema above, under the same headers and in the same
-order, from Confidentiality to Comp ID, so it reads like the export it came from and loads
-straight back in.
+under the download button in the header. The filtered rows download from the same menu, as
+an Excel workbook (.xlsx) or a CSV. Both write the 45 columns of the export schema above,
+under the same headers and in the same order, from Confidentiality to Comp ID, so they read
+like the export they came from and load straight back in. The workbook holds real dates and
+numbers, keeps codes such as the Comp ID and NAICS code as text, and puts filter arrows on
+the header row.
 
 Pick the parts to include, in four groups:
 
@@ -366,7 +369,7 @@ the filter is on, which the field coverage panel accounts for.
 produce a meaningless average. Rows the sheet marks as monthly are multiplied by 12 before
 any aggregation, and the base rent filter works on that annual figure. The popup and the
 table still show each deal exactly as the sheet quotes it, alongside its rate type, and so
-does the CSV export. Magnitude alone never triggers this: only an explicit monthly rate
+do the Excel and CSV exports. Magnitude alone never triggers this: only an explicit monthly rate
 type does.
 
 **Term length units.** A `Term (Years)` column converts to months. A plain `Term` column is
@@ -386,11 +389,11 @@ npm run typecheck
 npm i -D playwright geojson-vt vt-pbf   # once; not project dependencies
 
 npm run dev                      # terminal 1
-npm run test:units               # terminal 2, 552 assertions
+npm run test:units               # terminal 2, 558 assertions
 npm run test:map                 # terminal 2, 26 checks on the vector map layers
 
 npm run build && npm run preview # terminal 1
-npm run test:e2e                 # terminal 2, 161 end-to-end checks
+npm run test:e2e                 # terminal 2, 163 end-to-end checks
 BASE_URL=http://host/sub/ npm run test:e2e   # the same checks against a build hosted elsewhere
 
 npm run build:standalone

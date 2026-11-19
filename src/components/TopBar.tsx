@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useApp } from '../state/AppContext'
 import { dealsToCsv, downloadCsv, timestampedName } from '../lib/exportCsv'
+import { dealsToXlsx, downloadXlsx } from '../lib/exportXlsx'
 import { IconChart, IconDownload, IconMap, IconMoon, IconSettings, IconSun, IconTable, IconUpload } from './Icons'
 import wordmark from '../assets/cbre-wordmark-white.png'
 
 /**
- * The top bar's download button: the filtered rows as CSV, as before, or the dashboard as a
- * PDF report or PowerPoint deck through the export dialog.
+ * The top bar's download button: the filtered rows as an Excel workbook or a CSV, or the
+ * dashboard as a PDF report or PowerPoint deck through the export dialog.
  */
 function DownloadMenu() {
   const { filtered, setExportOpen } = useApp()
@@ -60,12 +61,16 @@ function DownloadMenu() {
 
   // Each item unmounts with the menu, so focus goes back to the menu button first rather than
   // dropping to <body>. The export dialog then hands it back there when it closes.
-  const downloadRows = () => {
+  const downloadRows = (format: 'xlsx' | 'csv') => {
     buttonRef.current?.focus()
     setOpen(false)
     if (rows === 0) return
-    downloadCsv(timestampedName('cbre-hcls-lease-comps'), dealsToCsv(filtered))
+    const name = timestampedName('cbre-hcls-lease-comps', format)
+    if (format === 'xlsx') downloadXlsx(name, dealsToXlsx(filtered))
+    else downloadCsv(name, dealsToCsv(filtered))
   }
+  const rowsNote =
+    rows === 0 ? 'No rows pass the filters' : `The ${rows.toLocaleString('en-US')} ${rows === 1 ? 'row' : 'rows'} passing the filters`
 
   const openExport = () => {
     buttonRef.current?.focus()
@@ -91,13 +96,18 @@ function DownloadMenu() {
 
       {open && (
         <div className="dlmenu__panel" role="menu" id={menuId} aria-label="Download" onKeyDown={onMenuKeyDown}>
-          <button type="button" role="menuitem" className="dlmenu__item" onClick={downloadRows} disabled={rows === 0}>
+          <button type="button" role="menuitem" className="dlmenu__item" onClick={() => downloadRows('xlsx')} disabled={rows === 0}>
+            <IconTable size={16} />
+            <span className="grow">
+              Deal rows (Excel)
+              <span className="dlmenu__sub">{rowsNote}, as .xlsx</span>
+            </span>
+          </button>
+          <button type="button" role="menuitem" className="dlmenu__item" onClick={() => downloadRows('csv')} disabled={rows === 0}>
             <IconTable size={16} />
             <span className="grow">
               Deal rows (CSV)
-              <span className="dlmenu__sub">
-                {rows === 0 ? 'No rows pass the filters' : `The ${rows.toLocaleString('en-US')} ${rows === 1 ? 'row' : 'rows'} passing the filters`}
-              </span>
+              <span className="dlmenu__sub">{rowsNote}, as .csv</span>
             </span>
           </button>
           <button type="button" role="menuitem" className="dlmenu__item" onClick={openExport}>

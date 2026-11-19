@@ -16,6 +16,7 @@ import { chromium } from 'playwright'
 import geojsonvt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
 import JSZip from 'jszip'
+import * as XLSX from '@e965/xlsx'
 import { readFileSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 
@@ -914,7 +915,7 @@ check('focus returns to the export button', (await page.evaluate(() => document.
 
 // The CSV is still in the same menu.
 await page.getByRole('button', { name: 'Download', exact: true }).click()
-const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows/ }))
+const csv = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows \(CSV\)/ }))
 const csvRows = csv.body.toString('utf8').trim().split(/\r?\n/).length
 check('the CSV still downloads every filtered row', csv.name.endsWith('.csv') && csvRows === 75, `${csv.name}, ${csvRows} lines`)
 // Its columns are the practice's export schema, in the schema's order, as the upload checks above
@@ -929,6 +930,22 @@ check(
 check(
   'focus returns to the menu button after the CSV',
   (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Download',
+)
+
+// The same rows as an Excel workbook, opened and read: the same columns, with dates as dates.
+await page.getByRole('button', { name: 'Download', exact: true }).click()
+const xlsxFile = await downloadFrom(page.getByRole('menuitem', { name: /Deal rows \(Excel\)/ }))
+const book = XLSX.read(xlsxFile.body, { type: 'buffer', cellDates: true })
+const bookRows = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, defval: null })
+check(
+  'the Excel download holds every filtered row under the same columns',
+  xlsxFile.name.endsWith('.xlsx') && bookRows.length === 75 && bookRows[0].join('|') === csvHeader.join('|'),
+  `${xlsxFile.name}, ${bookRows.length} rows, ${bookRows[0].length} columns`,
+)
+check(
+  'the Excel download writes real dates and numbers',
+  bookRows[1][csvHeader.indexOf('Signed Date')] instanceof Date &&
+    typeof bookRows[1][csvHeader.indexOf('Area Leased')] === 'number',
 )
 
 // A control that disables itself when used keeps focus in the dialog, so Escape still closes it,
